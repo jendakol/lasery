@@ -122,10 +122,10 @@ void setup() {
 
     Serial.print(F("\nConnecting to ws://"));
     Serial.print(gatewayIp);
-    Serial.println(WS_PATH);
+    Serial.println(SENSOR_WS_PATH);
 
     ws.onEvent(webSocketEvent);
-    ws.begin(gatewayIp, 80, WS_PATH);
+    ws.begin(gatewayIp, 80, SENSOR_WS_PATH);
 }
 
 void loop() {

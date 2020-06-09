@@ -12,7 +12,8 @@
 #define STATIC_FILES_PREFIX "/w"
 
 AsyncWebServer webServer(80);
-AsyncWebSocket ws(WS_PATH);
+AsyncWebSocket wsSensors(SENSOR_WS_PATH);
+AsyncWebSocket wsFrontend(FRONTEND_WS_PATH);
 DNSServer dnsServer;
 
 static FS FileSystem = SPIFFS;
@@ -26,6 +27,8 @@ int appState = STATE_ARMED;
 unsigned long lastReport = 0;
 
 std::set<uint32_t> alerting_ids;
+
+void reportStateToFrontend();
 
 void onTextMessage(AsyncWebSocketClient *client, uint8_t *data, const size_t len) {
     if (len > 90) {
@@ -76,14 +79,73 @@ void onTextMessage(AsyncWebSocketClient *client, uint8_t *data, const size_t len
     }
 }
 
-void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, const size_t len) {
+void onSensorWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, const size_t len) {
     if (type == WS_EVT_CONNECT) {
-        Serial.println(F("Websocket client connection received"));
+        Serial.println(F("Sensor client connection received"));
     } else if (type == WS_EVT_DISCONNECT) {
-        Serial.println(F("Websocket client disconnected"));
+        Serial.println(F("Sensor client disconnected"));
     } else if (type == WS_EVT_DATA) {
         onTextMessage(client, data, len);
+        reportStateToFrontend();
     }
+}
+
+void onFrontendWsEvent(AsyncWebSocket *s, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, const size_t len) {
+    if (type == WS_EVT_CONNECT) {
+        Serial.println(F("Frontend client connection received"));
+    } else if (type == WS_EVT_DISCONNECT) {
+        Serial.println(F("Frontend client disconnected"));
+    } else if (type == WS_EVT_DATA) {
+        Serial.print(F("Frontend data received: "));
+
+        for (uint i = 0; i < len; i++) {
+            Serial.print((char) data[i]);
+        }
+        Serial.println();
+
+        StaticJsonDocument<100> requestJson;
+        deserializeJson(requestJson, data, len);
+
+        if (requestJson["op"] == "init") {
+            reportStateToFrontend();
+            return;
+        }
+
+        if (requestJson["op"] == "arm") {
+            if (appState == STATE_UNARMED)appState = STATE_ARMED;
+            reportStateToFrontend();
+
+            return;
+        }
+
+        if (requestJson["op"] == "unarm") {
+            if (appState == STATE_ARMED || appState == STATE_ALERTING)appState = STATE_UNARMED;
+            reportStateToFrontend();
+
+            return;
+        }
+
+        if (requestJson["op"] == "alert") {
+            appState = STATE_ALERTING;
+            Serial.println(F("Manually alerting!"));
+            reportStateToFrontend();
+
+            return;
+        }
+    }
+}
+
+void reportStateToFrontend() {
+    StaticJsonDocument<50> responseJson;
+
+    responseJson["type"] = "state";
+    responseJson["state"] = appState;
+    responseJson["clients"] = wsSensors.getClients().length();
+
+    char output[50];
+    size_t l = serializeJson(responseJson, output);
+
+    wsFrontend.textAll(output, l);
 }
 
 String getContentType(const String &filename) {
@@ -193,8 +255,10 @@ void setup() {
         request->send(404);
     });
 
-    webServer.addHandler(&ws);
-    ws.onEvent(onWsEvent);
+    webServer.addHandler(&wsSensors);
+    webServer.addHandler(&wsFrontend);
+    wsSensors.onEvent(onSensorWsEvent);
+    wsFrontend.onEvent(onFrontendWsEvent);
 
     webServer.begin();
     Serial.println(F("HTTP server started"));
@@ -202,18 +266,18 @@ void setup() {
 
 void loop() {
     dnsServer.processNextRequest();
-    ws.cleanupClients();
+    wsSensors.cleanupClients();
 
     if (appState == STATE_ALERTING) {
         lastReport = millis();
         Serial.print(F("Connected clients: "));
-        Serial.print(ws.getClients().length());
+        Serial.print(wsSensors.getClients().length());
         Serial.println(F(" State: ALERTING"));
         delay(100);
     } else if (millis() - lastReport > 1000) {
         lastReport = millis();
         Serial.print(F("Connected clients: "));
-        Serial.print(ws.getClients().length());
+        Serial.print(wsSensors.getClients().length());
         Serial.print(F(" State: "));
 
         switch (appState) {
