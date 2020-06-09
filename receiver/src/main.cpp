@@ -1,46 +1,88 @@
 #include <Arduino.h>
 
-#include <ESPAsyncWebServer.h>
-#include <DNSServer.h>
-
 #include "../../common/Constants.h"
 
-#include <ESPAsyncWebServer.h> // this is universal over ESP32/ESP8266
+#include <ESPAsyncWebServer.h>
 #include <DNSServer.h>
 #include <FS.h>
 
 #include <ArduinoJson.h>
 
+#define DNS_PORT 53
 #define STATIC_FILES_PREFIX "/w"
 
 AsyncWebServer webServer(80);
-AsyncWebSocket ws("/ws");
-
-const byte DNS_PORT = 53;
+AsyncWebSocket ws(WS_PATH);
 DNSServer dnsServer;
-
-AsyncWebSocketClient *wsClient = nullptr;
 
 static FS FileSystem = SPIFFS;
 
-void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
+#define STATE_UNARMED 0
+#define STATE_ARMED 1
+#define STATE_ALERTING 2
+
+// TODO change back to STATE_UNARMED;
+int appState = STATE_ARMED;
+unsigned long lastReport = 0;
+
+std::set<uint32_t> alerting_ids;
+
+void onTextMessage(AsyncWebSocketClient *client, uint8_t *data, const size_t len) {
+    if (len > 90) {
+        Serial.println(F("Received some too-long shit, skipping"));
+        return;
+    }
+
+//    Serial.print(F("Websocket data received: "));
+//
+//    for (uint i = 0; i < len; i++) {
+//        Serial.print((char) data[i]);
+//    }
+//    Serial.println();
+
+    StaticJsonDocument<100> requestJson;
+    deserializeJson(requestJson, data, len);
+
+    if (requestJson["type"] == "handshake") {
+        StaticJsonDocument<20> responseJson;
+
+        responseJson["status"] = "ok";
+
+        char output[20];
+        size_t l = serializeJson(responseJson, output);
+
+        client->text(output, l);
+        return;
+    }
+
+    if (requestJson["type"] == "alert") {
+        if (requestJson["status"] == "alert") {
+            alerting_ids.insert(client->id());
+        } else if (requestJson["status"] == "ok") {
+            alerting_ids.erase(client->id());
+        };
+
+        if (appState != STATE_UNARMED) appState = alerting_ids.empty() ? STATE_ARMED : STATE_ALERTING;
+
+        StaticJsonDocument<20> responseJson;
+
+        responseJson["status"] = "ok";
+
+        char output[20];
+        size_t l = serializeJson(responseJson, output);
+
+        client->text(output, l);
+        return;
+    }
+}
+
+void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, const size_t len) {
     if (type == WS_EVT_CONNECT) {
         Serial.println(F("Websocket client connection received"));
-        wsClient = client;
     } else if (type == WS_EVT_DISCONNECT) {
         Serial.println(F("Websocket client disconnected"));
-        wsClient = nullptr;
     } else if (type == WS_EVT_DATA) {
-        Serial.print(F("Websocket data received: "));
-
-        for (uint i = 0; i < len; i++) {
-            Serial.print((char) data[i]);
-        }
-
-        // TODO
-        client->text("{'message': 'ahoj'}");
-
-        Serial.println();
+        onTextMessage(client, data, len);
     }
 }
 
@@ -122,7 +164,9 @@ void createAP() {
 
     WiFi.disconnect(true);
 
-    Serial.print(F("Configuring access point…"));
+    Serial.print(F("Configuring access point with SSID "));
+    Serial.println(WIFI_SSID);
+
     WiFi.softAPConfig(apIP, apIP, netMsk);
     WiFi.softAP(WIFI_SSID, WIFI_PASSWORD);
 
@@ -156,4 +200,29 @@ void setup() {
     Serial.println(F("HTTP server started"));
 }
 
-void loop() {};
+void loop() {
+    dnsServer.processNextRequest();
+    ws.cleanupClients();
+
+    if (appState == STATE_ALERTING) {
+        lastReport = millis();
+        Serial.print(F("Connected clients: "));
+        Serial.print(ws.getClients().length());
+        Serial.println(F(" State: ALERTING"));
+        delay(100);
+    } else if (millis() - lastReport > 1000) {
+        lastReport = millis();
+        Serial.print(F("Connected clients: "));
+        Serial.print(ws.getClients().length());
+        Serial.print(F(" State: "));
+
+        switch (appState) {
+            case STATE_UNARMED:
+                Serial.println("UNARMED");
+                break;
+            case STATE_ARMED:
+                Serial.println("ARMED");
+                break;
+        }
+    }
+}
