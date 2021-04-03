@@ -1,6 +1,10 @@
 #!/bin/bash
-cd /home/jenda/dev/arduino/esp-wifi && \
+
+dir=$(pwd)
+
+cd "$dir" && \
   cd front
+  npm i && \
   npm run build && \
   cd dist && \
 
@@ -19,6 +23,9 @@ cd /home/jenda/dev/arduino/esp-wifi && \
   rm **/*LICENSE* && \
 
   du -b * && \
-  cd /home/jenda/dev/arduino/esp-wifi && \
+  cd "$dir" && \
+  mkdir data || true && \
+  cd data && rm -rf * && ln -sf ../front/dist w && \
+  cd "$dir" && \
   read -p "Press any key to upload (or kill me)..." && \
   pio run --target uploadfs
