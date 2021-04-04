@@ -198,7 +198,7 @@ bool handleStaticFile(AsyncWebServerRequest *request) {
 
     if (path.endsWith("/")) path += F("index.html");
 
-    String contentType = getContentType(path);
+    const String contentType = getContentType(path);
     String pathWithGz = path + ".gz";
 
     if (FileSystem.exists(pathWithGz) || FileSystem.exists(path)) {
@@ -213,11 +213,15 @@ bool handleStaticFile(AsyncWebServerRequest *request) {
 
         Serial.println("Serving static file, path=" + path + " size=" + file.size() + " content-type=" + contentType);
 
+        Tasker::sleep(5);
+
         AsyncWebServerResponse *response = request->beginResponse(
                 contentType,
                 file.size(),
                 [file](uint8_t *buffer, size_t maxLen, size_t total) mutable -> size_t {
-                    int bytes = file.read(buffer, maxLen);
+                    const int bytes = file.read(buffer, max(maxLen, (size_t) 512));
+
+                    Tasker::sleep(1);
 
                     // close file at the end
                     if (bytes + total == file.size()) file.close();
@@ -230,22 +234,14 @@ bool handleStaticFile(AsyncWebServerRequest *request) {
             response->addHeader(F("Content-Encoding"), F("gzip"));
         }
 
+        Tasker::sleep(5);
+
         request->send(response);
 
         return true;
     }
 
     return false;
-}
-
-void installCaptivePortalRedirects() {
-    webServer.addRewrite(new AsyncWebRewrite("/generate_204", "/index.html"));
-    webServer.addRewrite(new AsyncWebRewrite("/gen_204", "/index.html"));
-    webServer.addRewrite(new AsyncWebRewrite("/fwlink", "/index.html"));
-    webServer.addRewrite(new AsyncWebRewrite("/connecttest.txt", "/index.html"));
-    webServer.addRewrite(new AsyncWebRewrite("/hotspot-detect.html", "/index.html"));
-    webServer.addRewrite(new AsyncWebRewrite("/library/test/success.html", "/index.html"));
-    webServer.addRewrite(new AsyncWebRewrite("/kindle-wifi/wifistub.html", "/index.html"));
 }
 
 void createAP() {
@@ -261,23 +257,18 @@ void createAP() {
     Tasker::sleep(100);
     WiFi.softAPConfig(apIP, apIP, netMsk);
 
-    /* Setup the DNS server redirecting all the domains to the apIP */
-    dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
-    dnsServer.start(DNS_PORT, "*", apIP);
-
     Tasker::sleep(500);
     Serial.print(F("AP IP address: "));
     Serial.println(WiFi.softAPIP());
-
-    installCaptivePortalRedirects();
 }
 
 void setup() {
     Serial.begin(115200);
     FileSystem.begin();
 
-    NetworkTasker.once("network-setup", [] {
-        createAP();
+    createAP();
+
+    DefaultTasker.once("network-setup", [] {
 
         webServer.onNotFound([](AsyncWebServerRequest *request) {
             if (handleStaticFile(request)) return;
@@ -291,10 +282,6 @@ void setup() {
 
         webServer.begin();
         Serial.println(F("HTTP server started"));
-    });
-
-    DefaultTasker.loop("DNS-handle", [] {
-        dnsServer.processNextRequest();
     });
 
     DefaultTasker.loopEvery("SendPing", PING_EVERY, [] {
@@ -335,6 +322,8 @@ void setup() {
 
 void loop() {
     // no-op, handling by Tasker
+
+    // TODO self-check, restart if in weird state
 }
 
 #pragma clang diagnostic pop
