@@ -19,7 +19,7 @@
 
 #define STATE_REPORT_EVERY 2000
 
-#define REPORT_INTERVAL_MIN 1000
+#define REPORT_INTERVAL_MIN 50
 #define REPORT_INTERVAL_MAX 5000
 
 #define CONFIRMATION_TIMEOUT 100
@@ -27,12 +27,12 @@
 #define PING_TIMEOUT (PING_EVERY + 500)
 
 #define MEASURE_SAMPLES 3
-#define MEASURE_THRESHOLD 80
+#define MEASURE_THRESHOLD 100
 
 int appState = STATE_STARTED;
-unsigned long lastPing = 0;
-unsigned long lastReport = 0;
-unsigned long lastReportSent = 0;
+u64 lastPing = 0;
+u64 lastReport = 0;
+u64 lastReportSent = 0;
 bool lastReceivedStateWasAlert = false;
 bool unconfirmedMessage = false;
 
@@ -45,16 +45,15 @@ typedef struct SensorConfig {
     byte sensors;
 } SensorConfig;
 
-// TODO load from eeprom ?
-SensorConfig config = SensorConfig{
+const SensorConfig config = SensorConfig{
         .wifiSsid = WIFI_SSID,
         .wifiPass = WIFI_PASSWORD,
-        .sensors = 1
+        .sensors = 2
 };
 
 void printState();
 
-byte measure(byte sensorId) {
+u16 measure(byte sensorId) {
     switch (sensorId) {
         case 0: {
             digitalWrite(PIN_SENSOR1, HIGH);
@@ -71,25 +70,24 @@ byte measure(byte sensorId) {
             return -1;
     }
 
-    int sum = 0;
+    u16 sum = 0;
 
     for (int i = 0; i < MEASURE_SAMPLES; ++i) {
         sum += analogRead(A0);
-        delay(1);
     }
 
-    return sum / MEASURE_SAMPLES;
+    return (u16) ((double) sum / MEASURE_SAMPLES);
 }
 
 void webSocketEvent(WStype_t type, uint8_t *payload, size_t len) {
-    unsigned long now = millis();
+    const u64 now = millis();
 
     switch (type) {
         case WStype_DISCONNECTED: {
             appState = STATE_STARTED;
             Serial.println(F("Websocket disconnected! Reconnecting.."));
 
-            const unsigned long start = now;
+            const u64 start = now;
 
             ws.begin(gatewayIp, 80, SENSOR_WS_PATH);
 
@@ -116,7 +114,7 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t len) {
 
             const String status = json["status"];
 
-            Serial.printf("Confirmed status after %lu ms: %s\n", now - lastReportSent, status.c_str());
+            Serial.printf("Confirmed status after %llu ms: %s\n", duration(now, lastReportSent), status.c_str());
 
             if (status == "alert" || status == "alert-ok") {
                 unconfirmedMessage = false;
@@ -135,12 +133,6 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t len) {
         }
             break;
         case WStype_PING: {
-//            Serial.print("PING ");
-//
-//            for (uint i = 0; i < len; i++) {
-//                Serial.print((char) payload[i]);
-//            }
-//            Serial.println();
             lastPing = now;
         }
             break;
@@ -151,12 +143,12 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t len) {
     }
 }
 
-void loopFor(unsigned int mill) {
-    const unsigned long start = millis();
+void wsLoop() {
+    const u64 start = millis();
 
     ws.loop();
 
-    while ((millis() - start) < mill) {
+    while ((millis() - start) < 1) {
         delay(0);
         ws.loop();
     }
@@ -174,7 +166,7 @@ void reportAlerting(bool alerting) {
     json["type"] = F("alert");
     json["status"] = status;
 
-    loopFor(5);
+    wsLoop();
 
     const size_t l = serializeJson(json, output);
     if (!ws.sendTXT(output, l)) {
@@ -191,8 +183,6 @@ void setup() {
     Serial.begin(115200);
 
     Serial.println("Initializing...");
-
-    pinMode(A0, INPUT);
 
     pinMode(PIN_RED, OUTPUT);
     pinMode(PIN_GREEN, OUTPUT);
@@ -232,9 +222,9 @@ void setup() {
 }
 
 void loop() {
-    loopFor(5);
+    wsLoop();
 
-    unsigned long now = millis();
+    u64 now = millis();
 
     if (duration(now, lastReport) > STATE_REPORT_EVERY) {
         printState();
@@ -245,22 +235,23 @@ void loop() {
         appState = STATE_RUNNING;
     }
 
-    loopFor(5);
+    wsLoop();
 
     if (appState >= STATE_RUNNING) {
         bool alerting = false;
 
         for (int i = 0; i < config.sensors; ++i) {
-            loopFor(5);
-            alerting |= (measure(i) < MEASURE_THRESHOLD);
+            wsLoop();
+            u16 measured = measure(i);
+            alerting |= (measured < MEASURE_THRESHOLD);
         }
 
-        loopFor(5);
+        wsLoop();
 
         now = millis();
 
         // following two values are basically a snapshot; this is to prevent race-condition with WS events -.|.-
-        const unsigned long sinceLastReport = duration(now, lastReportSent);
+        const u32 sinceLastReport = duration(now, lastReportSent);
         const bool isUnconfirmedMessage = unconfirmedMessage;
 
         const bool alertingChange = alerting != lastReceivedStateWasAlert;
@@ -272,20 +263,20 @@ void loop() {
             } else {
                 Serial.println("There is an unconfirmed message, skipping!");
             }
-            loopFor(5);
+            wsLoop();
         }
 
         if (isUnconfirmedMessage && (sinceLastReport > CONFIRMATION_TIMEOUT)) {
-            Serial.printf("Message confirmation has timed-out (%lu ms), disconnecting\n", sinceLastReport);
+            Serial.printf("Message confirmation has timed-out (%u ms), disconnecting\n", sinceLastReport);
             ws.disconnect();
             return;
         }
 
-        loopFor(5);
+        wsLoop();
 
-        const unsigned long sinceLastPing = duration(now, lastPing);
+        const u32 sinceLastPing = duration(now, lastPing);
         if (sinceLastPing > PING_TIMEOUT) {
-            Serial.printf("Didn't receive ping for too long (%lu ms), disconnecting\n", sinceLastPing);
+            Serial.printf("Didn't receive ping for too long (%u ms), disconnecting\n", sinceLastPing);
             ws.disconnect();
             return;
         }
