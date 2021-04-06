@@ -25,17 +25,22 @@ AsyncWebSocket wsSensors(SENSOR_WS_PATH);
 
 #define CLIENT_PONG_TIMEOUT (PING_EVERY + 500)
 
+#define HOLD_ALERT_FOR 1000
+
 // TODO change back to STATE_UNARMED;
 int appState = STATE_ARMED;
 u64 lastReport = 0;
+u64 alertSince = 0;
 
 u32 pingNo = 0;
 
 std::set<u32> alerting_ids;
 std::map<u32, u64> lastPongs;
 
-void updateStatus() {
-    if (appState != STATE_UNARMED) appState = alerting_ids.empty() ? STATE_ARMED : STATE_ALERTING;
+bool shouldAlert() { return appState >= STATE_ARMED && !alerting_ids.empty(); }
+
+void displayState() {
+    // TODO display
 }
 
 void clearClients() {
@@ -70,8 +75,6 @@ void onTextMessage(AsyncWebSocketClient *client, u8 *data, const size_t len) {
         } else if (status == "alert-ok") {
             alerting_ids.erase(client->id());
         }
-
-        updateStatus();
 
         StaticJsonDocument<30> responseJson;
 
@@ -148,10 +151,24 @@ void setup() {
         wsSensors.pingAll((u8 *) data, string.length());
     });
 
-    DefaultTasker.loopEvery("PrintStatus", 10, [] {
-        updateStatus();
-
+    DefaultTasker.loopEvery("DisplayState", 10, [] {
         const u64 now = millis();
+
+        if (appState >= STATE_ARMED) {
+            if (shouldAlert()) {
+                if (appState == STATE_ARMED) {
+                    appState = STATE_ALERTING;
+                    alertSince = now;
+                }
+            } else {
+                // `now > HOLD_ALERT_FOR` == enough long after start
+                if (now > HOLD_ALERT_FOR && duration(now, alertSince) >= HOLD_ALERT_FOR) {
+                    appState = STATE_ARMED;
+                }
+            }
+        }
+
+        displayState();
 
         if (appState == STATE_ALERTING && (duration(now, lastReport) > 500)) {
             lastReport = now;
