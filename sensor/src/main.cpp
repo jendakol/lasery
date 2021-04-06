@@ -26,6 +26,9 @@
 #define RECONNECTION_TIMEOUT 50
 #define PING_TIMEOUT (PING_EVERY + 500)
 
+#define MAX_RECONNECTIONS 5
+#define MIN_RECONNECTIONS_INTERVAL 5000
+
 #define MEASURE_SAMPLES 3
 #define MEASURE_THRESHOLD 100
 
@@ -35,6 +38,9 @@ u64 lastReport = 0;
 u64 lastReportSent = 0;
 bool lastReceivedStateWasAlert = false;
 bool unconfirmedMessage = false;
+
+u8 totalReconnections = 0;
+u64 lastReconnection = 0;
 
 IPAddress gatewayIp;
 WebSocketsClient ws;
@@ -85,7 +91,21 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t len) {
     switch (type) {
         case WStype_DISCONNECTED: {
             appState = STATE_STARTED;
-            Serial.println(F("Websocket disconnected! Reconnecting.."));
+            Serial.println(F("Websocket disconnected!"));
+
+            if (duration(now, lastReconnection) < MIN_RECONNECTIONS_INTERVAL) {
+                Serial.println(F("Too frequent reconnections, restarting..."));
+                ESP.restart();
+                return;
+            }
+
+            if (totalReconnections++ > MAX_RECONNECTIONS) {
+                Serial.println(F("Too many reconnections, restarting..."));
+                ESP.restart();
+                return;
+            }
+
+            Serial.println(F("Reconnecting..."));
 
             const u64 start = now;
 
@@ -99,7 +119,11 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t len) {
             if (!ws.isConnected()) {
                 Serial.println(F("Could not reconnect, restarting"));
                 ESP.restart();
+                return;
             }
+
+            totalReconnections++;
+            lastReconnection = millis();
         }
             break;
         case WStype_CONNECTED: {
