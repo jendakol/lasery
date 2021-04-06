@@ -14,6 +14,11 @@
 
 #include <Tasker.h>
 
+typedef unsigned char u8;
+typedef unsigned short u16;
+typedef unsigned int u32;
+typedef unsigned long long u64;
+
 #define DNS_PORT 53
 #define STATIC_FILES_PREFIX "/w"
 
@@ -32,12 +37,12 @@ DNSServer dnsServer;
 
 // TODO change back to STATE_UNARMED;
 int appState = STATE_ARMED;
-unsigned long lastReport = 0;
+u64 lastReport = 0;
 
-unsigned long pingNo = 0;
+u32 pingNo = 0;
 
-std::set<uint32_t> alerting_ids;
-std::map<uint32_t, uint32_t> lastPongs;
+std::set<u32> alerting_ids;
+std::map<u32, u64> lastPongs;
 
 void reportStateToFrontend();
 
@@ -48,10 +53,10 @@ void updateStatus() {
 void clearClients() {
     wsSensors.cleanupClients();
 
-    const unsigned long now = millis();
+    const u64 now = millis();
 
     for (auto client: wsSensors.getClients()) {
-        const uint32_t lastPong = lastPongs[client->id()];
+        const u64 lastPong = lastPongs[client->id()];
 
         if (duration(now, lastPong) > CLIENT_PONG_TIMEOUT) {
             Serial.printf("Kicking unresponsive client %d\n", client->id());
@@ -61,7 +66,7 @@ void clearClients() {
     }
 }
 
-void onTextMessage(AsyncWebSocketClient *client, uint8_t *data, const size_t len) {
+void onTextMessage(AsyncWebSocketClient *client, u8 *data, const size_t len) {
     StaticJsonDocument<50> requestJson;
     deserializeJson(requestJson, data, len);
 
@@ -95,15 +100,15 @@ void onTextMessage(AsyncWebSocketClient *client, uint8_t *data, const size_t len
 }
 
 void onSensorWsEvent(__unused AsyncWebSocket *server, AsyncWebSocketClient *client,
-                     AwsEventType type, __unused void *arg, uint8_t *data, const size_t len) {
-    const unsigned long now = millis();
+                     AwsEventType type, __unused void *arg, u8 *data, const size_t len) {
+    const u64 now = millis();
 
     if (type == WS_EVT_CONNECT) {
         client->keepAlivePeriod(30000);
         Serial.printf("Sensor client %d connection received\n", client->id());
-        lastPongs.insert(std::pair<uint32_t, uint32_t>(client->id(), now));
+        lastPongs.insert(std::pair<u32, u32>(client->id(), now));
         const String &string = String(pingNo);
-        client->ping((uint8_t *) string.c_str(), string.length());
+        client->ping((u8 *) string.c_str(), string.length());
     } else if (type == WS_EVT_DISCONNECT) {
         Serial.printf("Sensor client %d disconnected\n", client->id());
         alerting_ids.erase(client->id());
@@ -118,7 +123,7 @@ void onSensorWsEvent(__unused AsyncWebSocket *server, AsyncWebSocketClient *clie
 }
 
 void onFrontendWsEvent(__unused AsyncWebSocket *s, __unused AsyncWebSocketClient *client,
-                       AwsEventType type, __unused void *arg, uint8_t *data, const size_t len) {
+                       AwsEventType type, __unused void *arg, u8 *data, const size_t len) {
     if (type == WS_EVT_CONNECT) {
         Serial.println(F("Frontend client connection received"));
     } else if (type == WS_EVT_DISCONNECT) {
@@ -126,7 +131,7 @@ void onFrontendWsEvent(__unused AsyncWebSocket *s, __unused AsyncWebSocketClient
     } else if (type == WS_EVT_DATA) {
         Serial.print(F("Frontend data received: "));
 
-        for (uint i = 0; i < len; i++) {
+        for (u8 i = 0; i < len; i++) {
             Serial.print((char) data[i]);
         }
         Serial.println();
@@ -218,7 +223,7 @@ bool handleStaticFile(AsyncWebServerRequest *request) {
         AsyncWebServerResponse *response = request->beginResponse(
                 contentType,
                 file.size(),
-                [file](uint8_t *buffer, size_t maxLen, size_t total) mutable -> size_t {
+                [file](u8 *buffer, size_t maxLen, size_t total) mutable -> size_t {
                     const int bytes = file.read(buffer, max(maxLen, (size_t) 512));
 
                     Tasker::sleep(1);
@@ -289,13 +294,13 @@ void setup() {
 
         const String &string = String(++pingNo);
         const char *data = string.c_str();
-        wsSensors.pingAll((uint8_t *) data, string.length());
+        wsSensors.pingAll((u8 *) data, string.length());
     });
 
     DefaultTasker.loopEvery("PrintStatus", 10, [] {
         updateStatus();
 
-        const unsigned long now = millis();
+        const u64 now = millis();
 
         if (appState == STATE_ALERTING && (duration(now, lastReport) > 500)) {
             lastReport = now;
