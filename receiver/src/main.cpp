@@ -6,9 +6,6 @@
 #include "../../common/Constants.h"
 
 #include <ESPAsyncWebServer.h>
-#include <DNSServer.h>
-#include <FS.h>
-#include <SPIFFS.h>
 #include <ArduinoJson.h>
 #include <set>
 
@@ -19,15 +16,8 @@ typedef unsigned short u16;
 typedef unsigned int u32;
 typedef unsigned long long u64;
 
-#define DNS_PORT 53
-#define STATIC_FILES_PREFIX "/w"
-
 AsyncWebServer webServer(80);
 AsyncWebSocket wsSensors(SENSOR_WS_PATH);
-AsyncWebSocket wsFrontend(FRONTEND_WS_PATH);
-DNSServer dnsServer;
-
-#define FileSystem SPIFFS
 
 #define STATE_UNARMED 0
 #define STATE_ARMED 1
@@ -43,8 +33,6 @@ u32 pingNo = 0;
 
 std::set<u32> alerting_ids;
 std::map<u32, u64> lastPongs;
-
-void reportStateToFrontend();
 
 void updateStatus() {
     if (appState != STATE_UNARMED) appState = alerting_ids.empty() ? STATE_ARMED : STATE_ALERTING;
@@ -118,135 +106,7 @@ void onSensorWsEvent(__unused AsyncWebSocket *server, AsyncWebSocketClient *clie
     } else if (type == WS_EVT_DATA) {
         lastPongs[client->id()] = now;
         onTextMessage(client, data, len);
-        reportStateToFrontend();
     }
-}
-
-void onFrontendWsEvent(__unused AsyncWebSocket *s, __unused AsyncWebSocketClient *client,
-                       AwsEventType type, __unused void *arg, u8 *data, const size_t len) {
-    if (type == WS_EVT_CONNECT) {
-        Serial.println(F("Frontend client connection received"));
-    } else if (type == WS_EVT_DISCONNECT) {
-        Serial.println(F("Frontend client disconnected"));
-    } else if (type == WS_EVT_DATA) {
-        Serial.print(F("Frontend data received: "));
-
-        for (u8 i = 0; i < len; i++) {
-            Serial.print((char) data[i]);
-        }
-        Serial.println();
-
-        StaticJsonDocument<100> requestJson;
-        deserializeJson(requestJson, data, len);
-
-        if (requestJson["op"] == "init") {
-            reportStateToFrontend();
-            return;
-        }
-
-        if (requestJson["op"] == "arm") {
-            if (appState == STATE_UNARMED)appState = STATE_ARMED;
-            reportStateToFrontend();
-
-            return;
-        }
-
-        if (requestJson["op"] == "unarm") {
-            if (appState == STATE_ARMED || appState == STATE_ALERTING)appState = STATE_UNARMED;
-            reportStateToFrontend();
-
-            return;
-        }
-
-        if (requestJson["op"] == "alert") {
-            appState = STATE_ALERTING;
-            Serial.println(F("Manually alerting!"));
-            reportStateToFrontend();
-
-            return;
-        }
-    }
-}
-
-void reportStateToFrontend() {
-    StaticJsonDocument<50> responseJson;
-
-    responseJson["type"] = "state";
-    responseJson["state"] = appState;
-    responseJson["clients"] = wsSensors.getClients().length();
-
-    char output[50];
-    size_t l = serializeJson(responseJson, output);
-
-    wsFrontend.textAll(output, l);
-}
-
-String getContentType(const String &filename) {
-    if (filename.endsWith(F(".htm"))) return F("text/html");
-    if (filename.endsWith(F(".html"))) return F("text/html");
-    if (filename.endsWith(F(".css"))) return F("text/css");
-    if (filename.endsWith(F(".js"))) return F("application/javascript");
-    if (filename.endsWith(F(".png"))) return F("image/png");
-    if (filename.endsWith(F(".gif"))) return F("image/gif");
-    if (filename.endsWith(F(".jpg"))) return F("image/jpeg");
-    if (filename.endsWith(F(".ico"))) return F("image/x-icon");
-    if (filename.endsWith(F(".xml"))) return F("text/xml");
-    if (filename.endsWith(F(".pdf"))) return F("application/x-pdf");
-    if (filename.endsWith(F(".zip"))) return F("application/x-zip");
-    if (filename.endsWith(F(".gz"))) return F("application/x-gzip");
-
-    return F("text/plain");
-}
-
-bool handleStaticFile(AsyncWebServerRequest *request) {
-    String path = STATIC_FILES_PREFIX + request->url();
-
-    if (path.endsWith("/")) path += F("index.html");
-
-    const String contentType = getContentType(path);
-    String pathWithGz = path + ".gz";
-
-    if (FileSystem.exists(pathWithGz) || FileSystem.exists(path)) {
-        bool gzipped = false;
-
-        if (FileSystem.exists(pathWithGz)) {
-            gzipped = true;
-            path += ".gz";
-        }
-
-        File file = FileSystem.open(path, "r");
-
-        Serial.println("Serving static file, path=" + path + " size=" + file.size() + " content-type=" + contentType);
-
-        Tasker::sleep(5);
-
-        AsyncWebServerResponse *response = request->beginResponse(
-                contentType,
-                file.size(),
-                [file](u8 *buffer, size_t maxLen, size_t total) mutable -> size_t {
-                    const int bytes = file.read(buffer, max(maxLen, (size_t) 512));
-
-                    Tasker::sleep(1);
-
-                    // close file at the end
-                    if (bytes + total == file.size()) file.close();
-
-                    return max(0, bytes); // return 0 even when no bytes were loaded
-                }
-        );
-
-        if (gzipped) {
-            response->addHeader(F("Content-Encoding"), F("gzip"));
-        }
-
-        Tasker::sleep(5);
-
-        request->send(response);
-
-        return true;
-    }
-
-    return false;
 }
 
 void createAP() {
@@ -269,21 +129,12 @@ void createAP() {
 
 void setup() {
     Serial.begin(115200);
-    FileSystem.begin();
 
     createAP();
 
     DefaultTasker.once("network-setup", [] {
-
-        webServer.onNotFound([](AsyncWebServerRequest *request) {
-            if (handleStaticFile(request)) return;
-            request->send(404);
-        });
-
         webServer.addHandler(&wsSensors);
-        webServer.addHandler(&wsFrontend);
         wsSensors.onEvent(onSensorWsEvent);
-        wsFrontend.onEvent(onFrontendWsEvent);
 
         webServer.begin();
         Serial.println(F("HTTP server started"));
