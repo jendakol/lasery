@@ -8,6 +8,7 @@
 
 #define PIN_GREEN D1
 #define PIN_RED D2
+#define PIN_BUZZER D5
 
 #define PIN_SENSOR1 D6
 #define PIN_SENSOR2 D7
@@ -58,6 +59,7 @@ const SensorConfig config = SensorConfig{
 };
 
 void printState();
+void displayState(u64 now);
 
 u16 measure(byte sensorId) {
     switch (sensorId) {
@@ -210,15 +212,12 @@ void setup() {
 
     pinMode(PIN_RED, OUTPUT);
     pinMode(PIN_GREEN, OUTPUT);
+    pinMode(PIN_BUZZER, OUTPUT);
 
     pinMode(PIN_SENSOR1, OUTPUT);
     pinMode(PIN_SENSOR2, OUTPUT);
 
-    digitalWrite(PIN_GREEN, LOW);
-    digitalWrite(PIN_RED, LOW);
-
-    digitalWrite(PIN_SENSOR1, HIGH);
-    digitalWrite(PIN_SENSOR2, HIGH);
+    displayState(millis());
 
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
@@ -250,8 +249,11 @@ void loop() {
 
     u64 now = millis();
 
+    displayState(now);
+
     if (duration(now, lastReport) > STATE_REPORT_EVERY) {
         printState();
+        wsLoop();
     }
 
     if (appState == STATE_CONNECTED) {
@@ -326,6 +328,33 @@ void printState() {
             break;
         case STATE_ALERTING:
             Serial.println("ALERTING");
+            break;
+    }
+}
+
+void displayState(u64 now) {
+    const u8 phase = now / 250 % 2;
+
+    switch (appState) {
+        case STATE_STARTED: // red blinking
+            digitalWrite(PIN_RED, phase == 0 ? HIGH : LOW);
+            digitalWrite(PIN_GREEN, LOW);
+            digitalWrite(PIN_BUZZER, HIGH);
+            break;
+        case STATE_CONNECTED: // red still
+            digitalWrite(PIN_RED, HIGH);
+            digitalWrite(PIN_GREEN, LOW);
+            digitalWrite(PIN_BUZZER, LOW);
+            break;
+        case STATE_RUNNING: // green still
+            digitalWrite(PIN_RED, LOW);
+            digitalWrite(PIN_GREEN, HIGH);
+            digitalWrite(PIN_BUZZER, LOW);
+            break;
+        case STATE_ALERTING: // green blinking
+            digitalWrite(PIN_RED, LOW);
+            digitalWrite(PIN_GREEN, phase == 0 ? HIGH : LOW);
+            digitalWrite(PIN_BUZZER, HIGH);
             break;
     }
 }
