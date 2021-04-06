@@ -19,16 +19,28 @@ typedef unsigned long long u64;
 AsyncWebServer webServer(80);
 AsyncWebSocket wsSensors(SENSOR_WS_PATH);
 
+#define PIN_SWITCH_ARMED 32
+#define PIN_SWITCH_SIREN 33
+
+#define PIN_SIREN 33
+
+typedef u8 AppState;
+
 #define STATE_UNARMED 0
 #define STATE_ARMED 1
 #define STATE_ALERTING 2
+
+typedef u8 SwitchState;
+
+#define SWITCH_UNARMED 10
+#define SWITCH_ARMED 11
+#define SWITCH_SIREN 12
 
 #define CLIENT_PONG_TIMEOUT (PING_EVERY + 500)
 
 #define HOLD_ALERT_FOR 1000
 
-// TODO change back to STATE_UNARMED;
-int appState = STATE_ARMED;
+AppState appState = STATE_ARMED;
 u64 lastReport = 0;
 u64 alertSince = 0;
 
@@ -41,6 +53,27 @@ bool shouldAlert() { return appState >= STATE_ARMED && !alerting_ids.empty(); }
 
 void displayState() {
     // TODO display
+}
+
+void switchSiren(bool on) {
+    // TODO switch
+    if (on) {
+        Serial.println("SIREN!!!");
+    }
+}
+
+SwitchState readSwitchState() {
+    // TODO adjust to physical switch
+
+    if (digitalRead(PIN_SWITCH_ARMED) == HIGH) {
+        return SWITCH_ARMED;
+    }
+
+    if (digitalRead(PIN_SWITCH_SIREN) == HIGH) {
+        return SWITCH_SIREN;
+    }
+
+    return SWITCH_UNARMED;
 }
 
 void clearClients() {
@@ -130,8 +163,43 @@ void createAP() {
     Serial.println(WiFi.softAPIP());
 }
 
+void printState(const u64 now) {
+    lastReport = now;
+
+    String appStateName = "UNARMED";
+
+    switch (appState) {
+        case STATE_ARMED:
+            appStateName = "ARMED";
+            break;
+        case STATE_ALERTING:
+            appStateName = "ALERTING";
+            break;
+    }
+
+    String switchStateName = "UNARMED";
+
+    switch (readSwitchState()) {
+        case SWITCH_ARMED:
+            switchStateName = "ARMED";
+            break;
+        case SWITCH_SIREN:
+            switchStateName = "SIREN";
+            break;
+    }
+
+    Serial.printf("Connected sensors: %d Switch state: %s App state: %s\n",
+                  wsSensors.getClients().length(),
+                  switchStateName.c_str(),
+                  appStateName.c_str());
+}
+
 void setup() {
     Serial.begin(115200);
+
+    pinMode(PIN_SWITCH_ARMED, INPUT_PULLDOWN);
+    pinMode(PIN_SWITCH_SIREN, INPUT_PULLDOWN);
+    pinMode(PIN_SIREN, OUTPUT);
 
     createAP();
 
@@ -149,6 +217,20 @@ void setup() {
         const String &string = String(++pingNo);
         const char *data = string.c_str();
         wsSensors.pingAll((u8 *) data, string.length());
+    });
+
+    DefaultTasker.loopEvery("SwitchState", 50, [] {
+        switch (readSwitchState()) {
+            case SWITCH_UNARMED:
+                appState = STATE_UNARMED;
+                break;
+            case SWITCH_ARMED:
+            case SWITCH_SIREN:
+                if (appState != STATE_ALERTING) {
+                    appState = STATE_ARMED;
+                }
+                break;
+        }
     });
 
     DefaultTasker.loopEvery("DisplayState", 10, [] {
@@ -170,25 +252,10 @@ void setup() {
 
         displayState();
 
-        if (appState == STATE_ALERTING && (duration(now, lastReport) > 500)) {
-            lastReport = now;
-            Serial.print(F("Connected clients: "));
-            Serial.print(wsSensors.getClients().length());
-            Serial.println(F(" State: ALERTING"));
-        } else if (duration(now, lastReport) > 2000) {
-            lastReport = now;
-            Serial.print(F("Connected clients: "));
-            Serial.print(wsSensors.getClients().length());
-            Serial.print(F(" State: "));
+        switchSiren(appState == STATE_ALERTING && readSwitchState() == SWITCH_SIREN);
 
-            switch (appState) {
-                case STATE_UNARMED:
-                    Serial.println("UNARMED");
-                    break;
-                case STATE_ARMED:
-                    Serial.println("ARMED");
-                    break;
-            }
+        if ((appState == STATE_ALERTING && (duration(now, lastReport) > 500)) || (duration(now, lastReport) > 2000)) {
+            printState(now);
         }
     });
 }
