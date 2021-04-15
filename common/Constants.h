@@ -5,4 +5,4 @@
 
 #define PING_EVERY 1000
 
-#define duration(a, b) ((a - b)<(4000000000)?(a - b):(0))
+#define durationBetween(a, b) ((a - b)<(4000000000)?(a - b):(0))
