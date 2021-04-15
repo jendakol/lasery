@@ -84,7 +84,7 @@ void clearClients() {
     for (auto client: wsSensors.getClients()) {
         const u64 lastPong = lastPongs[client->id()];
 
-        if (duration(now, lastPong) > CLIENT_PONG_TIMEOUT) {
+        if (durationBetween(now, lastPong) > CLIENT_PONG_TIMEOUT) {
             Serial.printf("Kicking unresponsive client %d\n", client->id());
             client->client()->close(true);
             lastPongs.erase(client->id());
@@ -244,7 +244,7 @@ void setup() {
                 }
             } else {
                 // `now > HOLD_ALERT_FOR` == enough long after start
-                if (now > HOLD_ALERT_FOR && duration(now, alertSince) >= HOLD_ALERT_FOR) {
+                if (now > HOLD_ALERT_FOR && durationBetween(now, alertSince) >= HOLD_ALERT_FOR) {
                     appState = STATE_ARMED;
                 }
             }
@@ -254,7 +254,7 @@ void setup() {
 
         switchSiren(appState == STATE_ALERTING && readSwitchState() == SWITCH_SIREN);
 
-        if ((appState == STATE_ALERTING && (duration(now, lastReport) > 500)) || (duration(now, lastReport) > 2000)) {
+        if ((appState == STATE_ALERTING && (durationBetween(now, lastReport) > 500)) || (durationBetween(now, lastReport) > 2000)) {
             printState(now);
         }
     });

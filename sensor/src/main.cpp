@@ -95,7 +95,7 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t len) {
             appState = STATE_STARTED;
             Serial.println(F("Websocket disconnected!"));
 
-            if (duration(now, lastReconnection) < MIN_RECONNECTIONS_INTERVAL) {
+            if (durationBetween(now, lastReconnection) < MIN_RECONNECTIONS_INTERVAL) {
                 Serial.println(F("Too frequent reconnections, restarting..."));
                 ESP.restart();
                 return;
@@ -140,7 +140,7 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t len) {
 
             const String status = json["status"];
 
-            Serial.printf("Confirmed status after %llu ms: %s\n", duration(now, lastReportSent), status.c_str());
+            Serial.printf("Confirmed status after %llu ms: %s\n", durationBetween(now, lastReportSent), status.c_str());
 
             if (status == "alert" || status == "alert-ok") {
                 unconfirmedMessage = false;
@@ -251,7 +251,7 @@ void loop() {
 
     displayState(now);
 
-    if (duration(now, lastReport) > STATE_REPORT_EVERY) {
+    if (durationBetween(now, lastReport) > STATE_REPORT_EVERY) {
         printState();
         wsLoop();
     }
@@ -277,7 +277,7 @@ void loop() {
         now = millis();
 
         // following two values are basically a snapshot; this is to prevent race-condition with WS events -.|.-
-        const u32 sinceLastReport = duration(now, lastReportSent);
+        const u32 sinceLastReport = durationBetween(now, lastReportSent);
         const bool isUnconfirmedMessage = unconfirmedMessage;
 
         const bool alertingChange = alerting != lastReceivedStateWasAlert;
@@ -300,7 +300,7 @@ void loop() {
 
         wsLoop();
 
-        const u32 sinceLastPing = duration(now, lastPing);
+        const u32 sinceLastPing = durationBetween(now, lastPing);
         if (sinceLastPing > PING_TIMEOUT) {
             Serial.printf("Didn't receive ping for too long (%u ms), disconnecting\n", sinceLastPing);
             ws.disconnect();
