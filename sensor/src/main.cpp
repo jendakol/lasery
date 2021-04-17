@@ -5,13 +5,10 @@
 #include <ESP8266WiFi.h>
 #include <WebSocketsClient.h>
 #include <ArduinoJson.h>
+#include <Sensor.h>
 
-#define PIN_GREEN D1
-#define PIN_RED D2
-#define PIN_BUZZER D5
-
-#define PIN_SENSOR1 D6
-#define PIN_SENSOR2 D7
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunknown-pragmas"
 
 #define STATE_STARTED 0
 #define STATE_CONNECTED 1
@@ -30,9 +27,6 @@
 #define MAX_RECONNECTIONS 5
 #define MIN_RECONNECTIONS_INTERVAL 5000
 
-#define MEASURE_SAMPLES 3
-#define MEASURE_THRESHOLD 100
-
 int appState = STATE_STARTED;
 u64 lastPing = 0;
 u64 lastReport = 0;
@@ -43,56 +37,30 @@ bool unconfirmedMessage = false;
 u8 totalReconnections = 0;
 u64 lastReconnection = 0;
 
+// TODO init dynamically - support less than 2 sensors
+#define SENSORS_COUNT 2
+Sensor *sensors[] = {new Sensor(0x20), new Sensor(0x21)};
+
 IPAddress gatewayIp;
 WebSocketsClient ws;
 
-typedef struct SensorConfig {
-    String wifiSsid;
-    String wifiPass;
-    byte sensors;
-} SensorConfig;
-
-const SensorConfig config = SensorConfig{
-        .wifiSsid = WIFI_SSID,
-        .wifiPass = WIFI_PASSWORD,
-        .sensors = 2
-};
-
 void printState();
+
 void displayState(u64 now);
 
-u16 measure(byte sensorId) {
-    switch (sensorId) {
-        case 0: {
-            digitalWrite(PIN_SENSOR1, HIGH);
-            digitalWrite(PIN_SENSOR2, LOW);
-        }
-            break;
-        case 1: {
-            digitalWrite(PIN_SENSOR1, LOW);
-            digitalWrite(PIN_SENSOR2, HIGH);
-        }
-            break;
-        default:
-            Serial.println("Invalid sensorId!");
-            return -1;
-    }
-
-    u16 sum = 0;
-
-    for (int i = 0; i < MEASURE_SAMPLES; ++i) {
-        sum += analogRead(A0);
-    }
-
-    return (u16) ((double) sum / MEASURE_SAMPLES);
-}
+u8 measureAndUpdateStates();
 
 void webSocketEvent(WStype_t type, uint8_t *payload, size_t len) {
-    const u64 now = millis();
+    u64 now = millis();
 
     switch (type) {
         case WStype_DISCONNECTED: {
             appState = STATE_STARTED;
+            for (int i = 0; i < SENSORS_COUNT; ++i) {
+                Sensor *sensor = sensors[i];
+                sensor->ledStatus = LedStatus::RedStill;
+            }
+            displayState(now);
             Serial.println(F("Websocket disconnected!"));
 
             if (durationBetween(now, lastReconnection) < MIN_RECONNECTIONS_INTERVAL) {
@@ -113,10 +81,18 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t len) {
 
             ws.begin(gatewayIp, 80, SENSOR_WS_PATH);
 
-            while (!ws.isConnected() && (millis() - start) < RECONNECTION_TIMEOUT) {
+            for (int i = 0; i < SENSORS_COUNT; ++i) {
+                Sensor *sensor = sensors[i];
+                sensor->ledStatus = LedStatus::RedBlink;
+            }
+
+            while (!ws.isConnected() && ((now = millis()) - start) < RECONNECTION_TIMEOUT) {
                 delay(0);
+                displayState(now);
                 ws.loop();
             }
+
+            displayState(now);
 
             if (!ws.isConnected()) {
                 Serial.println(F("Could not reconnect, restarting"));
@@ -146,8 +122,6 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t len) {
                 unconfirmedMessage = false;
                 lastReceivedStateWasAlert = (status == "alert");
             } else {
-                digitalWrite(PIN_RED, HIGH);
-                digitalWrite(PIN_GREEN, LOW);
                 Serial.println((char *) payload);
                 Serial.println(F("Unknown message received:"));
 
@@ -174,10 +148,13 @@ void wsLoop() {
 
     ws.loop();
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "LoopDoesntUseConditionVariableInspection"
     while ((millis() - start) < 1) {
         delay(0);
         ws.loop();
     }
+#pragma clang diagnostic pop
 }
 
 void reportAlerting(bool alerting) {
@@ -208,14 +185,12 @@ void reportAlerting(bool alerting) {
 void setup() {
     Serial.begin(115200);
 
+    for (int i = 0; i < SENSORS_COUNT; ++i) {
+        Sensor *sensor = sensors[i];
+        sensor->ledStatus = LedStatus::RedStill;
+    }
+
     Serial.println("Initializing...");
-
-    pinMode(PIN_RED, OUTPUT);
-    pinMode(PIN_GREEN, OUTPUT);
-    pinMode(PIN_BUZZER, OUTPUT);
-
-    pinMode(PIN_SENSOR1, OUTPUT);
-    pinMode(PIN_SENSOR2, OUTPUT);
 
     displayState(millis());
 
@@ -224,13 +199,24 @@ void setup() {
     Serial.print(F("\nConnecting to wifi "));
     Serial.println(WIFI_SSID);
 
-    while (WiFi.status() != WL_CONNECTED) { // Wait for the Wi-Fi to connect
-        delay(500);
-        Serial.print('.');
-        digitalWrite(PIN_GREEN, HIGH);
-        delay(20);
-        digitalWrite(PIN_GREEN, LOW);
+    for (int i = 0; i < SENSORS_COUNT; ++i) {
+        Sensor *sensor = sensors[i];
+        sensor->ledStatus = LedStatus::RedBlink;
     }
+
+    while (WiFi.status() != WL_CONNECTED) { // Wait for the Wi-Fi to connect
+        const u64 start = millis();
+        u64 now = start;
+        while ((now = millis()) - start < 500) {
+            displayState(now);
+            delay(5);
+        }
+        Serial.print('.');
+
+    }
+    delay(20);
+
+    displayState(millis());
 
     Serial.printf("\nConnected to wifi with IP %s\n", WiFi.localIP().toString().c_str());
 
@@ -264,12 +250,10 @@ void loop() {
     wsLoop();
 
     if (appState >= STATE_RUNNING) {
-        bool alerting = false;
+        const bool alerting = measureAndUpdateStates() == LOW;
 
-        for (int i = 0; i < config.sensors; ++i) {
-            wsLoop();
-            u16 measured = measure(i);
-            alerting |= (measured < MEASURE_THRESHOLD);
+        if (alerting) {
+            Serial.println("Alert!!");
         }
 
         wsLoop();
@@ -333,28 +317,21 @@ void printState() {
 }
 
 void displayState(u64 now) {
-    const u8 phase = now / 250 % 2;
-
-    switch (appState) {
-        case STATE_STARTED: // red blinking
-            digitalWrite(PIN_RED, phase == 0 ? HIGH : LOW);
-            digitalWrite(PIN_GREEN, LOW);
-            digitalWrite(PIN_BUZZER, HIGH);
-            break;
-        case STATE_CONNECTED: // red still
-            digitalWrite(PIN_RED, HIGH);
-            digitalWrite(PIN_GREEN, LOW);
-            digitalWrite(PIN_BUZZER, LOW);
-            break;
-        case STATE_RUNNING: // green still
-            digitalWrite(PIN_RED, LOW);
-            digitalWrite(PIN_GREEN, HIGH);
-            digitalWrite(PIN_BUZZER, LOW);
-            break;
-        case STATE_ALERTING: // green blinking
-            digitalWrite(PIN_RED, LOW);
-            digitalWrite(PIN_GREEN, phase == 0 ? HIGH : LOW);
-            digitalWrite(PIN_BUZZER, HIGH);
-            break;
+    for (int i = 0; i < SENSORS_COUNT; ++i) {
+        sensors[i]->loop(now);
     }
 }
+
+u8 measureAndUpdateStates() {
+    u8 result = HIGH;
+    for (int i = 0; i < SENSORS_COUNT; ++i) {
+        Sensor *sensor = sensors[i];
+        const u8 measured = sensor->measure();
+        result &= measured;
+        sensor->ledStatus = (measured == HIGH ? LedStatus::GreenStill : LedStatus::GreenBlink);
+    }
+
+    return result;
+}
+
+#pragma clang diagnostic pop
