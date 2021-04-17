@@ -7,6 +7,8 @@
 
 #include <ESPAsyncWebServer.h>
 #include <ArduinoJson.h>
+#include <TFT_eSPI.h>
+#include <SPI.h>
 #include <set>
 
 #include <Tasker.h>
@@ -19,28 +21,31 @@ typedef unsigned long long u64;
 AsyncWebServer webServer(80);
 AsyncWebSocket wsSensors(SENSOR_WS_PATH);
 
-#define PIN_SWITCH_ARMED 32
-#define PIN_SWITCH_SIREN 33
+#define TFT_GREY 0x5AEB
 
-#define PIN_SIREN 33
+TFT_eSPI tft;
 
-typedef u8 AppState;
+#define PIN_SWITCH_SIREN 32
+#define PIN_SWITCH_LASERS 33
 
-#define STATE_UNARMED 0
-#define STATE_ARMED 1
-#define STATE_ALERTING 2
+#define PIN_RELAY_SIREN 27
+#define PIN_RELAY_LASERS 26
 
-typedef u8 SwitchState;
+enum SwitchState {
+    SwOff, SwLasersOn, SwSirenEnabled
+};
 
-#define SWITCH_UNARMED 10
-#define SWITCH_ARMED 11
-#define SWITCH_SIREN 12
+SwitchState switchState = SwOff;
+
+boolean sirenOn = false;
 
 #define CLIENT_PONG_TIMEOUT (PING_EVERY + 500)
 
 #define HOLD_ALERT_FOR 1000
 
-AppState appState = STATE_ARMED;
+bool started = false;
+bool redrawDisplay = true;
+
 u64 lastReport = 0;
 u64 alertSince = 0;
 
@@ -49,34 +54,88 @@ u32 pingNo = 0;
 std::set<u32> alerting_ids;
 std::map<u32, u64> lastPongs;
 
-bool shouldAlert() { return appState >= STATE_ARMED && !alerting_ids.empty(); }
+void redraw() {
+    redrawDisplay = true;
+}
+
+bool shouldAlert() { return switchState >= SwLasersOn && !alerting_ids.empty(); }
+
+void switchRelays() {
+    if (switchState >= SwLasersOn) {
+        digitalWrite(PIN_RELAY_LASERS, LOW);
+    } else {
+        digitalWrite(PIN_RELAY_LASERS, HIGH);
+    }
+
+    if (sirenOn) {
+        Serial.println("SIREN!!!");
+        digitalWrite(PIN_RELAY_SIREN, LOW);
+    } else {
+        digitalWrite(PIN_RELAY_SIREN, HIGH);
+    }
+}
+
+void printState(const u64 now) {
+    lastReport = now;
+
+    const String sirenSettingName = switchState == SwSirenEnabled ? "ON" : "OFF";
+    const String lasersSettingName = switchState >= SwLasersOn ? "ON" : "OFF";
+
+    Serial.printf("Connected sensors: %d Siren enabled: %s Lasers enabled: %s Should alert: %s\n",
+                  wsSensors.getClients().length(),
+                  sirenSettingName.c_str(),
+                  lasersSettingName.c_str(),
+                  shouldAlert() ? "YES" : "NO");
+}
 
 void displayState() {
-    // TODO display
-}
+    if (!redrawDisplay) return;
+    redrawDisplay = false;
 
-void switchSiren(bool on) {
-    // TODO switch
-    if (on) {
-        Serial.println("SIREN!!!");
-    }
-}
-
-SwitchState readSwitchState() {
-    // TODO adjust to physical switch
-
-    if (digitalRead(PIN_SWITCH_ARMED) == HIGH) {
-        return SWITCH_ARMED;
+    if (!started) {
+        tft.fillScreen(TFT_GREY);
+        tft.fillRoundRect(10, 10, TFT_HEIGHT - 20, TFT_WIDTH - 20, 10, TFT_GREEN);
+        tft.setTextSize(1);
+        tft.setTextColor(TFT_BLACK);
+        tft.drawCentreString("Starting...", TFT_HEIGHT / 2, TFT_WIDTH / 2 - 10, 4);
+        return;
     }
 
-    if (digitalRead(PIN_SWITCH_SIREN) == HIGH) {
-        return SWITCH_SIREN;
+    if (sirenOn) {
+        tft.fillScreen(TFT_RED);
+        return;
     }
 
-    return SWITCH_UNARMED;
+    const bool possibleAlert = shouldAlert();
+
+    uint bgColor = switchState >= SwLasersOn ? (possibleAlert ? TFT_ORANGE : TFT_GREEN) : TFT_GREY;
+    uint textColor = switchState >= SwLasersOn ? TFT_BLACK : TFT_WHITE;
+
+    const String sirenSettingText = switchState == SwSirenEnabled ? "Siren: ENABLED" : "Siren: DISABLED";
+    const String lasersSettingText = switchState >= SwLasersOn ? "Lasers: ON" : "Lasers: OFF";
+
+    tft.fillScreen(bgColor);
+    tft.setTextColor(textColor);
+    tft.setTextSize(1);
+    tft.setTextFont(2);
+
+    tft.drawString(sirenSettingText, 2, 0, 2);
+    tft.drawRightString(lasersSettingText, TFT_HEIGHT - 2, 0, 2);
+
+    tft.setCursor(2, TFT_WIDTH - 16, 2);
+    const u8 clientsCount = wsSensors.getClients().length();
+    tft.printf("Clients: %d", clientsCount);
+
+    if (switchState == SwSirenEnabled) {
+        tft.setTextColor(TFT_ORANGE);
+        tft.setTextSize(4);
+        tft.drawCentreString(clientsCount > 0 ? "!!!" : "!", TFT_HEIGHT / 2, TFT_WIDTH / 2 - 40, 4);
+    }
 }
 
 void clearClients() {
+    const uint oldClientsCount = wsSensors.getClients().length();
+
     wsSensors.cleanupClients();
 
     const u64 now = millis();
@@ -90,6 +149,8 @@ void clearClients() {
             lastPongs.erase(client->id());
         }
     }
+
+    if (wsSensors.getClients().length() != oldClientsCount) { redraw(); }
 }
 
 void onTextMessage(AsyncWebSocketClient *client, u8 *data, const size_t len) {
@@ -103,10 +164,16 @@ void onTextMessage(AsyncWebSocketClient *client, u8 *data, const size_t len) {
 
         Serial.printf("Received alert info from sensor %d: %s\n", client->id(), status.c_str());
 
+        const bool oldAlerting = !alerting_ids.empty();
+
         if (status == "alert") {
             alerting_ids.insert(client->id());
         } else if (status == "alert-ok") {
             alerting_ids.erase(client->id());
+        }
+
+        if (!alerting_ids.empty() != oldAlerting) {
+            redraw();
         }
 
         StaticJsonDocument<30> responseJson;
@@ -131,12 +198,14 @@ void onSensorWsEvent(__unused AsyncWebSocket *server, AsyncWebSocketClient *clie
         client->keepAlivePeriod(30000);
         Serial.printf("Sensor client %d connection received\n", client->id());
         lastPongs.insert(std::pair<u32, u32>(client->id(), now));
+        redraw();
         const String &string = String(pingNo);
         client->ping((u8 *) string.c_str(), string.length());
     } else if (type == WS_EVT_DISCONNECT) {
         Serial.printf("Sensor client %d disconnected\n", client->id());
         alerting_ids.erase(client->id());
         lastPongs.erase(client->id());
+        redraw();
     } else if (type == WS_EVT_PONG) {
         lastPongs[client->id()] = now;
     } else if (type == WS_EVT_DATA) {
@@ -163,47 +232,27 @@ void createAP() {
     Serial.println(WiFi.softAPIP());
 }
 
-void printState(const u64 now) {
-    lastReport = now;
-
-    String appStateName = "UNARMED";
-
-    switch (appState) {
-        case STATE_ARMED:
-            appStateName = "ARMED";
-            break;
-        case STATE_ALERTING:
-            appStateName = "ALERTING";
-            break;
-    }
-
-    String switchStateName = "UNARMED";
-
-    switch (readSwitchState()) {
-        case SWITCH_ARMED:
-            switchStateName = "ARMED";
-            break;
-        case SWITCH_SIREN:
-            switchStateName = "SIREN";
-            break;
-    }
-
-    Serial.printf("Connected sensors: %d Switch state: %s App state: %s\n",
-                  wsSensors.getClients().length(),
-                  switchStateName.c_str(),
-                  appStateName.c_str());
-}
-
 void setup() {
     Serial.begin(115200);
 
-    pinMode(PIN_SWITCH_ARMED, INPUT_PULLDOWN);
+    tft.init();
+    tft.setRotation(1);
+
+    displayState();
+
+    pinMode(PIN_SWITCH_LASERS, INPUT_PULLDOWN);
     pinMode(PIN_SWITCH_SIREN, INPUT_PULLDOWN);
-    pinMode(PIN_SIREN, OUTPUT);
+    pinMode(PIN_RELAY_LASERS, OUTPUT);
+    pinMode(PIN_RELAY_SIREN, OUTPUT);
+    digitalWrite(PIN_RELAY_LASERS, HIGH);
+    digitalWrite(PIN_RELAY_SIREN, HIGH);
 
     createAP();
 
-    DefaultTasker.once("network-setup", [] {
+    DefaultTasker.loopEvery("DisplayState", 50, displayState);
+    DefaultTasker.loopEvery("SwitchRelays", 50, switchRelays);
+
+    DefaultTasker.once("NetworkSetup", [] {
         webServer.addHandler(&wsSensors);
         wsSensors.onEvent(onSensorWsEvent);
 
@@ -219,45 +268,53 @@ void setup() {
         wsSensors.pingAll((u8 *) data, string.length());
     });
 
-    DefaultTasker.loopEvery("SwitchState", 50, [] {
-        switch (readSwitchState()) {
-            case SWITCH_UNARMED:
-                appState = STATE_UNARMED;
-                break;
-            case SWITCH_ARMED:
-            case SWITCH_SIREN:
-                if (appState != STATE_ALERTING) {
-                    appState = STATE_ARMED;
-                }
-                break;
-        }
-    });
-
-    DefaultTasker.loopEvery("DisplayState", 10, [] {
+    DefaultTasker.loopEvery("ReadSwitches", 50, [] {
         const u64 now = millis();
 
-        if (appState >= STATE_ARMED) {
+        const bool oldSirenState = sirenOn;
+        const SwitchState oldSwitchState = switchState;
+
+        if (digitalRead(PIN_SWITCH_LASERS) == HIGH) {
+            switchState = SwOff;
+        } else if (digitalRead(PIN_SWITCH_LASERS) == LOW && digitalRead(PIN_SWITCH_SIREN) == LOW) {
+            switchState = SwLasersOn;
+        } else if (digitalRead(PIN_SWITCH_SIREN) == HIGH) {
+            switchState = SwSirenEnabled;
+        } else {
+            Serial.println("Weird switch state!!!");
+        }
+
+        // siren is ON but disabled...
+        if (oldSirenState && switchState <= SwLasersOn) {
+            // to stop immediately after switch change!
+            sirenOn = false;
+            alertSince = 0;
+        } else {
             if (shouldAlert()) {
-                if (appState == STATE_ARMED) {
-                    appState = STATE_ALERTING;
-                    alertSince = now;
+                if (switchState == SwSirenEnabled) {
+                    sirenOn = true;
+                    if (sirenOn != oldSirenState) alertSince = now;
                 }
             } else {
                 // `now > HOLD_ALERT_FOR` == enough long after start
                 if (now > HOLD_ALERT_FOR && durationBetween(now, alertSince) >= HOLD_ALERT_FOR) {
-                    appState = STATE_ARMED;
+                    sirenOn = false;
+                    alertSince = 0;
                 }
             }
         }
 
-        displayState();
+        if (switchState != oldSwitchState || sirenOn != oldSirenState) {
+            redraw();
+        }
 
-        switchSiren(appState == STATE_ALERTING && readSwitchState() == SWITCH_SIREN);
-
-        if ((appState == STATE_ALERTING && (durationBetween(now, lastReport) > 500)) || (durationBetween(now, lastReport) > 2000)) {
+        if ((sirenOn && (durationBetween(now, lastReport) > 500)) || (durationBetween(now, lastReport) > 2000)) {
             printState(now);
         }
     });
+
+    started = true;
+    redraw();
 }
 
 void loop() {
