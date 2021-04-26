@@ -1,3 +1,6 @@
+PRDEL
+
+
 magnifier_d = [50,40];
 magnifier_f = 30;
 magnifier_ring = 0.6;
