@@ -2,7 +2,7 @@ magnifier_d = [50.5, 40];
 magnifier_f = 29.5;
 magnifier_ring = 0.5;
 
-photodiode_d = 5.1;
+photodiode_d = 5;
 control_diode_d = 4.7;
 
 connector_hole_dia = 4;
@@ -57,7 +57,9 @@ union() {
         }
 
         color("green") translate([fatness / 2 - .05, fatness / 2 - .05, box.z / 2 - 10]) {
-            cube([box.x - fatness + .05, box.y - fatness + .05, 10]);
+            size = [box.x - fatness - .05, box.y - fatness - .05, 10];
+            echo("Closing inner", size.x, "x", size.y);
+            cube(size);
         }
 
         // hole for control LED
@@ -66,8 +68,8 @@ union() {
         }
 
         // hole for wire
-        translate([0, box.y / 2, fatness + connector_hole_dia / 2]) rotate([0, 90]) {
-            cylinder(h = fatness, d = connector_hole_dia, $fn = round_prec);
+        translate([-.01, 40, fatness + 8]) rotate([0, 90]) {
+            cylinder(h = fatness + .02, d = connector_hole_dia, $fn = round_prec);
         }
     }
 
@@ -119,7 +121,9 @@ translate([0, -75, 0])
 
             color("green") translate([fatness / 2 + .1, fatness / 2 + .1, box.z / 2 - .1]) {
                 difference() {
-                    cube([box.x - fatness - .2, box.y - fatness - .2, 10]);
+                    size = [box.x - fatness - .2, box.y - fatness - .2, 10];
+                    echo("Closing outer", size.x, "x", size.y);
+                    cube(size);
                     translate([fatness / 2 - .1, fatness / 2 - .1, - .1]) {
                         cube([inner_box.x, inner_box.y, inner_box.z]);
                     }
