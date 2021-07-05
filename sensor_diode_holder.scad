@@ -81,7 +81,7 @@ union() {
             difference() {
                 union() {
                     cube([2, led_column_width, magnifier_d[0] / 2 + 4 + fatness]);
-                    translate([- 2, led_column_width / 2 - 1]) cube([7, 2, 6]);
+                    translate([- 2.5, led_column_width / 2 - 1]) cube([7.5, 2, 6]);
                 }
                 translate([- .1, led_column_width / 2, magnifier_d[0] / 2]) rotate([0, 90]) {
                     color("red") cylinder(h = 2 + 0.2, d = photodiode_d, $fn = round_prec);
