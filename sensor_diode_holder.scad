@@ -2,8 +2,8 @@ magnifier_d = [50.5, 40];
 magnifier_f = 29.5;
 magnifier_ring = 0.5;
 
-photodiode_d = 5;
-control_diode_d = 4.7;
+photodiode_d = 5.1;
+control_diode_d = 5.1;
 
 connector_hole_dia = 4;
 
@@ -63,12 +63,12 @@ union() {
         }
 
         // hole for control LED
-        translate([box.x - fatness, fatness + 5, fatness + 5]) rotate([0, 90]) {
-            cylinder(h = fatness, d = 5.5, $fn = round_prec);
+        translate([box.x - fatness - .01, fatness + 5, fatness + 5]) rotate([0, 90]) {
+            cylinder(h = fatness + .02, d = control_diode_d, $fn = round_prec);
         }
 
         // hole for wire
-        translate([-.01, 40, fatness + 8]) rotate([0, 90]) {
+        translate([- .01, 40, fatness + 8]) rotate([0, 90]) {
             cylinder(h = fatness + .02, d = connector_hole_dia, $fn = round_prec);
         }
     }
@@ -81,10 +81,10 @@ union() {
             difference() {
                 union() {
                     cube([2, led_column_width, magnifier_d[0] / 2 + 4 + fatness]);
-                    translate([- 3, led_column_width / 2 - 1]) cube([8, 2, 6]);
+                    translate([- 2, led_column_width / 2 - 1]) cube([7, 2, 6]);
                 }
                 translate([- .1, led_column_width / 2, magnifier_d[0] / 2]) rotate([0, 90]) {
-                    color("red") cylinder(h = 2 + 0.2, d = control_diode_d, $fn = round_prec);
+                    color("red") cylinder(h = 2 + 0.2, d = photodiode_d, $fn = round_prec);
                 }
             }
     }
@@ -95,7 +95,7 @@ union() {
 
 
 // cover
-translate([0, -75, 0])
+translate([0, - 75, 0])
     difference() {
         union() {
             difference() {
@@ -132,7 +132,7 @@ translate([0, -75, 0])
         }
 
         // cut the hole for magnifier
-        color("red") translate([box.x - fatness - .2, box.y / 2 - magnifier_d[1] / 2 - 2, box.z / 2 - .1]) {
+        color("red") translate([box.x - fatness - .2, box.y / 2 - magnifier_d[1] / 2 - 2, box.z / 2 - .11]) {
             cube([fatness, magnifier_d[1] + 4, 10 + .1]);
         }
     }
