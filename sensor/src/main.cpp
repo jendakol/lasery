@@ -7,6 +7,7 @@
 #include <ArduinoJson.h>
 #include <Sensor.h>
 #include <Wire.h>
+#include <EEPROM.h>
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunknown-pragmas"
@@ -39,6 +40,8 @@ bool unconfirmedMessage = false;
 u8 totalReconnections = 0;
 u64 lastReconnection = 0;
 
+u8 clientId = 0;
+
 // TODO init dynamically - support less than 2 sensors
 #define SENSORS_COUNT 2
 Sensor *sensors[] = {new Sensor(0x20), new Sensor(0x21)};
@@ -58,8 +61,7 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t len) {
     switch (type) {
         case WStype_DISCONNECTED: {
             appState = STATE_STARTED;
-            for (int i = 0; i < SENSORS_COUNT; ++i) {
-                Sensor *sensor = sensors[i];
+            for (auto sensor : sensors) {
                 sensor->ledStatus = LedStatus::RedStill;
             }
             displayState(now);
@@ -83,8 +85,7 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t len) {
 
             ws.begin(gatewayIp, 80, SENSOR_WS_PATH);
 
-            for (int i = 0; i < SENSORS_COUNT; ++i) {
-                Sensor *sensor = sensors[i];
+            for (auto sensor : sensors) {
                 sensor->ledStatus = LedStatus::RedBlink;
             }
 
@@ -160,8 +161,8 @@ void wsLoop() {
 }
 
 void reportAlerting(bool alerting) {
-    char output[40];
-    StaticJsonDocument<40> json;
+    char output[60];
+    StaticJsonDocument<60> json;
 
     const char *status = alerting ? "alert" : "alert-ok";
 
@@ -170,6 +171,7 @@ void reportAlerting(bool alerting) {
 
     json["type"] = F("alert");
     json["status"] = status;
+    json["clientId"] = clientId;
 
     wsLoop();
 
@@ -186,14 +188,17 @@ void reportAlerting(bool alerting) {
 
 void setup() {
     Serial.begin(115200);
+    EEPROM.begin(512);
 
-    for (int i = 0; i < SENSORS_COUNT; ++i) {
-        Sensor *sensor = sensors[i];
+    for (auto sensor : sensors) {
         sensor->ledStatus = LedStatus::RedStill;
     }
 
+    delay(1000);
     Serial.println("Initializing...");
 
+    clientId = EEPROM.read(0x00);
+    Serial.printf("Loaded client ID: %d\n", clientId);
     displayState(millis());
 
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -201,8 +206,7 @@ void setup() {
     Serial.print(F("\nConnecting to wifi "));
     Serial.println(WIFI_SSID);
 
-    for (int i = 0; i < SENSORS_COUNT; ++i) {
-        Sensor *sensor = sensors[i];
+    for (auto sensor : sensors) {
         sensor->ledStatus = LedStatus::RedBlink;
     }
 
@@ -261,7 +265,7 @@ void loop() {
         const bool alerting = measureAndUpdateStates() == LOW;
 
         if (isDebugReporting) {
-            for (auto & sensor : sensors) {
+            for (auto &sensor : sensors) {
                 Wire.beginTransmission(sensor->getAddress());
                 if (Wire.endTransmission() != 0) {
                     Serial.printf("Sensor on address 0x%x not found\n", sensor->getAddress());
@@ -332,8 +336,8 @@ void printState() {
 }
 
 void displayState(u64 now) {
-    for (int i = 0; i < SENSORS_COUNT; ++i) {
-        sensors[i]->loop(now);
+    for (auto & sensor : sensors) {
+        sensor->loop(now);
     }
 }
 
