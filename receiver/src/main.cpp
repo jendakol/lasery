@@ -10,6 +10,7 @@
 #include <TFT_eSPI.h>
 #include <SPI.h>
 #include <set>
+#include <TelnetPrint.h>
 
 #include <Tasker.h>
 
@@ -51,7 +52,7 @@ u64 alertSince = 0;
 
 u32 pingNo = 0;
 
-std::set<u32> alerting_ids;
+std::map<u32, u8> alerting_ids;
 std::map<u32, u64> lastPongs;
 
 void redraw() {
@@ -80,6 +81,25 @@ void printState(const u64 now) {
 
     const String sirenSettingName = switchState == SwSirenEnabled ? "ON" : "OFF";
     const String lasersSettingName = switchState >= SwLasersOn ? "ON" : "OFF";
+
+    if (!alerting_ids.empty()) {
+        std::map<u32, u8>::iterator it;
+
+        Serial.print("Alerting IDs: ");
+        TelnetPrint.print("Alerting IDs: ");
+        for (it = alerting_ids.begin(); it != alerting_ids.end(); it++) {
+            Serial.printf("%d, ", it->second);
+            TelnetPrint.printf("%d, ", it->second);
+        }
+        Serial.println();
+        TelnetPrint.println();
+    }
+
+    TelnetPrint.printf("Sensors: %d Siren en.: %s Lasers en.: %s Should alert: %s\r\n",
+                       wsSensors.getClients().length(),
+                       sirenSettingName.c_str(),
+                       lasersSettingName.c_str(),
+                       shouldAlert() ? "YES" : "NO");
 
     Serial.printf("Connected sensors: %d Siren enabled: %s Lasers enabled: %s Should alert: %s\n",
                   wsSensors.getClients().length(),
@@ -145,6 +165,7 @@ void clearClients() {
 
         if (durationBetween(now, lastPong) > CLIENT_PONG_TIMEOUT) {
             Serial.printf("Kicking unresponsive client %d\n", client->id());
+            TelnetPrint.printf("Kicking unresponsive client!\r\n");
             client->client()->close(true);
             lastPongs.erase(client->id());
         }
@@ -154,26 +175,28 @@ void clearClients() {
 }
 
 void onTextMessage(AsyncWebSocketClient *client, u8 *data, const size_t len) {
-    StaticJsonDocument<50> requestJson;
+    StaticJsonDocument<60> requestJson;
     deserializeJson(requestJson, data, len);
 
     const String type = requestJson["type"];
 
     if (type == "alert") {
         const String status = requestJson["status"];
+        const u8 clientId = requestJson["clientId"];
 
-        Serial.printf("Received alert info from sensor %d: %s\n", client->id(), status.c_str());
+        Serial.printf("Received alert info from sensor ID %d (client %d): %s\n", clientId, client->id(), status.c_str());
+        TelnetPrint.printf("Alert info from sensor ID %d: %s\r\n", clientId, status.c_str());
 
         const bool oldAlerting = !alerting_ids.empty();
 
         if (status == "alert") {
-            alerting_ids.insert(client->id());
+            alerting_ids.insert(std::pair<u32, u8>(client->id(), clientId));
         } else if (status == "alert-ok") {
+            redraw();
             alerting_ids.erase(client->id());
         }
 
         if (!alerting_ids.empty() != oldAlerting) {
-            redraw();
         }
 
         StaticJsonDocument<30> responseJson;
@@ -197,12 +220,14 @@ void onSensorWsEvent(__unused AsyncWebSocket *server, AsyncWebSocketClient *clie
     if (type == WS_EVT_CONNECT) {
         client->keepAlivePeriod(30000);
         Serial.printf("Sensor client %d connection received\n", client->id());
+        TelnetPrint.printf("Sensor client connection received\r\n");
         lastPongs.insert(std::pair<u32, u32>(client->id(), now));
         redraw();
         const String &string = String(pingNo);
         client->ping((u8 *) string.c_str(), string.length());
     } else if (type == WS_EVT_DISCONNECT) {
         Serial.printf("Sensor client %d disconnected\n", client->id());
+        TelnetPrint.printf("Sensor ID %d disconnected\r\n", alerting_ids[client->id()]);
         alerting_ids.erase(client->id());
         lastPongs.erase(client->id());
         redraw();
@@ -248,6 +273,9 @@ void setup() {
     digitalWrite(PIN_RELAY_SIREN, HIGH);
 
     createAP();
+
+    Serial.println("Starting telnet server...");
+    TelnetPrint.begin();
 
     DefaultTasker.loopEvery("DisplayState", 50, displayState);
     DefaultTasker.loopEvery("SwitchRelays", 50, switchRelays);
