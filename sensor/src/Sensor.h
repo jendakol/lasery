@@ -21,9 +21,12 @@ public:
 
     u8 measure();
 
+    u8 getAddress() const;
+
     LedStatus ledStatus = RedStill;
 private:
     PCF8574 pcf;
+    u8 address;
 };
 
 

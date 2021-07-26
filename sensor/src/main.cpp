@@ -6,6 +6,7 @@
 #include <WebSocketsClient.h>
 #include <ArduinoJson.h>
 #include <Sensor.h>
+#include <Wire.h>
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunknown-pragmas"
@@ -30,6 +31,7 @@
 int appState = STATE_STARTED;
 u64 lastPing = 0;
 u64 lastReport = 0;
+u64 lastDebugReport = 0;
 u64 lastReportSent = 0;
 bool lastReceivedStateWasAlert = false;
 bool unconfirmedMessage = false;
@@ -232,8 +234,14 @@ void setup() {
 
 void loop() {
     wsLoop();
+    bool isDebugReporting = false;
 
     u64 now = millis();
+
+    if (now - lastDebugReport > 500) {
+        isDebugReporting = true;
+        lastDebugReport = now;
+    }
 
     displayState(now);
 
@@ -252,8 +260,15 @@ void loop() {
     if (appState >= STATE_RUNNING) {
         const bool alerting = measureAndUpdateStates() == LOW;
 
-        if (alerting) {
-            Serial.println("Alert!!");
+        if (isDebugReporting) {
+            for (auto & sensor : sensors) {
+                Wire.beginTransmission(sensor->getAddress());
+                if (Wire.endTransmission() != 0) {
+                    Serial.printf("Sensor on address 0x%x not found\n", sensor->getAddress());
+                }
+            }
+
+            if (alerting) Serial.println("Alert!!");
         }
 
         wsLoop();
@@ -324,9 +339,9 @@ void displayState(u64 now) {
 
 u8 measureAndUpdateStates() {
     u8 result = HIGH;
-    for (int i = 0; i < SENSORS_COUNT; ++i) {
-        Sensor *sensor = sensors[i];
+    for (auto sensor : sensors) {
         const u8 measured = sensor->measure();
+//        if (measured == LOW) Serial.printf("Sensor 0x%x alerting!\n", sensor->getAddress());
         result &= measured;
         sensor->ledStatus = (measured == HIGH ? LedStatus::GreenStill : LedStatus::GreenBlink);
     }

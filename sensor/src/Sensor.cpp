@@ -3,6 +3,7 @@
 Sensor::Sensor(const u8 address) : pcf(address) {
     pcf.begin();
     pcf.write8(0xff);
+    this->address = address;
 }
 
 void Sensor::loop(const u64 now) {
@@ -34,4 +35,8 @@ void Sensor::loop(const u64 now) {
 
 u8 Sensor::measure() {
     return pcf.read(SENSOR_PIN_SIGNAL) == LOW ? HIGH : LOW; // return HIGH on a signal, LOW on no signal
+}
+
+u8 Sensor::getAddress() const {
+    return address;
 }
