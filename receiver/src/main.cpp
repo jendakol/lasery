@@ -52,14 +52,15 @@ u64 alertSince = 0;
 
 u32 pingNo = 0;
 
-std::map<u32, u8> alerting_ids;
+std::set<u32> alertingIds;
+std::map<u32, u8> clientIds;
 std::map<u32, u64> lastPongs;
 
 void redraw() {
     redrawDisplay = true;
 }
 
-bool shouldAlert() { return switchState >= SwLasersOn && !alerting_ids.empty(); }
+bool shouldAlert() { return switchState >= SwLasersOn && !alertingIds.empty(); }
 
 void switchRelays() {
     if (switchState >= SwLasersOn) {
@@ -82,14 +83,15 @@ void printState(const u64 now) {
     const String sirenSettingName = switchState == SwSirenEnabled ? "ON" : "OFF";
     const String lasersSettingName = switchState >= SwLasersOn ? "ON" : "OFF";
 
-    if (!alerting_ids.empty()) {
-        std::map<u32, u8>::iterator it;
+    if (!alertingIds.empty()) {
+        auto it = alertingIds.begin();
 
         Serial.print("Alerting IDs: ");
         TelnetPrint.print("Alerting IDs: ");
-        for (it = alerting_ids.begin(); it != alerting_ids.end(); it++) {
-            Serial.printf("%d, ", it->second);
-            TelnetPrint.printf("%d, ", it->second);
+        while (it != alertingIds.end()) {
+            Serial.printf("%d, ", clientIds[*it]);
+            TelnetPrint.printf("%d, ", clientIds[*it]);
+            it++;
         }
         Serial.println();
         TelnetPrint.println();
@@ -164,8 +166,8 @@ void clearClients() {
         const u64 lastPong = lastPongs[client->id()];
 
         if (durationBetween(now, lastPong) > CLIENT_PONG_TIMEOUT) {
-            Serial.printf("Kicking unresponsive client %d\n", client->id());
-            TelnetPrint.printf("Kicking unresponsive client!\r\n");
+            Serial.printf("Kicking unresponsive client ID %d (client %d)!\n", clientIds[client->id()], client->id());
+            TelnetPrint.printf("Kicking unresponsive client ID %d!\r\n", clientIds[client->id()]);
             client->client()->close(true);
             lastPongs.erase(client->id());
         }
@@ -187,16 +189,15 @@ void onTextMessage(AsyncWebSocketClient *client, u8 *data, const size_t len) {
         Serial.printf("Received alert info from sensor ID %d (client %d): %s\n", clientId, client->id(), status.c_str());
         TelnetPrint.printf("Alert info from sensor ID %d: %s\r\n", clientId, status.c_str());
 
-        const bool oldAlerting = !alerting_ids.empty();
+        const bool oldAlerting = !alertingIds.empty();
+
+        clientIds.insert(std::pair<u32, u8>(client->id(), clientId));
 
         if (status == "alert") {
-            alerting_ids.insert(std::pair<u32, u8>(client->id(), clientId));
+            alertingIds.insert(client->id());
         } else if (status == "alert-ok") {
             redraw();
-            alerting_ids.erase(client->id());
-        }
-
-        if (!alerting_ids.empty() != oldAlerting) {
+            alertingIds.erase(client->id());
         }
 
         StaticJsonDocument<30> responseJson;
@@ -227,8 +228,9 @@ void onSensorWsEvent(__unused AsyncWebSocket *server, AsyncWebSocketClient *clie
         client->ping((u8 *) string.c_str(), string.length());
     } else if (type == WS_EVT_DISCONNECT) {
         Serial.printf("Sensor client %d disconnected\n", client->id());
-        TelnetPrint.printf("Sensor ID %d disconnected\r\n", alerting_ids[client->id()]);
-        alerting_ids.erase(client->id());
+        TelnetPrint.printf("Sensor ID %d disconnected\r\n", clientIds[client->id()]);
+        clientIds.erase(client->id());
+        alertingIds.erase(client->id());
         lastPongs.erase(client->id());
         redraw();
     } else if (type == WS_EVT_PONG) {
