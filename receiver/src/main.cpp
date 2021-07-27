@@ -196,8 +196,11 @@ void onTextMessage(AsyncWebSocketClient *client, u8 *data, const size_t len) {
         if (status == "alert") {
             alertingIds.insert(client->id());
         } else if (status == "alert-ok") {
-            redraw();
             alertingIds.erase(client->id());
+        }
+
+        if (!alertingIds.empty() != oldAlerting) {
+            redraw();
         }
 
         StaticJsonDocument<30> responseJson;
