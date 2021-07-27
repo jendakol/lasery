@@ -250,7 +250,7 @@ void createAP() {
     Serial.print(F("Configuring access point with SSID "));
     Serial.println(WIFI_SSID);
 
-    WiFi.softAP(WIFI_SSID, WIFI_PASSWORD);
+    WiFi.softAP(WIFI_SSID, WIFI_PASSWORD, 1, 0, 10);
     Tasker::sleep(100);
     WiFi.softAPConfig(apIP, apIP, netMsk);
 
