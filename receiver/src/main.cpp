@@ -123,15 +123,30 @@ void displayState() {
         return;
     }
 
+    String alertingIdsText = "[";
+    auto it = alertingIds.begin();
+    while (it != alertingIds.end()) {
+        alertingIdsText += clientIds[*it];
+        alertingIdsText += ",";
+        it++;
+    }
+    alertingIdsText += "]";
+
+    const u16 textColor = switchState >= SwLasersOn ? TFT_BLACK : TFT_WHITE;
+
     if (sirenOn) {
         tft.fillScreen(TFT_RED);
+        if (!alertingIds.empty()) {
+            tft.setTextColor(textColor);
+            tft.setTextSize(2);
+            tft.drawCentreString(alertingIdsText, TFT_HEIGHT / 2, TFT_WIDTH / 2, 2);
+            tft.setTextSize(1);
+        }
         return;
     }
 
     const bool possibleAlert = shouldAlert();
-
-    uint bgColor = switchState >= SwLasersOn ? (possibleAlert ? TFT_ORANGE : TFT_GREEN) : TFT_GREY;
-    uint textColor = switchState >= SwLasersOn ? TFT_BLACK : TFT_WHITE;
+    const u16 bgColor = switchState >= SwLasersOn ? (possibleAlert ? TFT_ORANGE : TFT_GREEN) : TFT_GREY;
 
     const String sirenSettingText = switchState == SwSirenEnabled ? "Siren: ENABLED" : "Siren: DISABLED";
     const String lasersSettingText = switchState >= SwLasersOn ? "Lasers: ON" : "Lasers: OFF";
@@ -143,6 +158,13 @@ void displayState() {
 
     tft.drawString(sirenSettingText, 2, 0, 2);
     tft.drawRightString(lasersSettingText, TFT_HEIGHT - 2, 0, 2);
+
+    if (!alertingIds.empty()) {
+        tft.setTextColor(textColor);
+        tft.setTextSize(2);
+        tft.drawCentreString(alertingIdsText, TFT_HEIGHT / 2, TFT_WIDTH / 2, 2);
+        tft.setTextSize(1);
+    }
 
     tft.setCursor(2, TFT_WIDTH - 16, 2);
     const u8 clientsCount = wsSensors.getClients().length();
