@@ -2,7 +2,7 @@ magnifier_d = [50.5, 40];
 magnifier_f = 29.5;
 magnifier_ring = 0.5;
 
-photodiode_d = 5;
+photodiode_d = 8;
 control_diode_d = 5;
 
 connector_hole_dia = 4;
