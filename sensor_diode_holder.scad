@@ -2,7 +2,7 @@ magnifier_d = [50.5, 40];
 magnifier_f = 29.5;
 magnifier_ring = 0.5;
 
-photodiode_d = 5;
+photodiode_d = 8.2 + 0.2; // dia + print tolerance
 control_diode_d = 5;
 
 connector_hole_dia = 4;
@@ -73,14 +73,14 @@ union() {
         }
     }
 
-    diode_column_width = photodiode_d + 3;
+    diode_column_width = photodiode_d + 5;
 
     // actual diode holder
     translate([box.x - fatness - magnifier_f - 2, box.y / 2 - diode_column_width / 2, 0]) {
         color("yellow")
             difference() {
                 union() {
-                    cube([2, diode_column_width, magnifier_d[0] / 2 + 4 + fatness]);
+                    cube([2, diode_column_width, magnifier_d[0] / 2 + 6 + fatness]);
                     translate([- 2.5, diode_column_width / 2 - 1]) cube([7.5, 2, 6]);
                 }
                 translate([- .1, diode_column_width / 2, magnifier_d[0] / 2]) rotate([0, 90]) {
