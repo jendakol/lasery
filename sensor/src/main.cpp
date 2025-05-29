@@ -190,6 +190,10 @@ void setup() {
     Serial.begin(115200);
     EEPROM.begin(512);
 
+    //EEPROM.write(0x00, 14);
+    //EEPROM.commit();
+    // Serial.println("ID written to EEPROM");
+
     for (auto sensor : sensors) {
         sensor->ledStatus = LedStatus::RedStill;
     }
