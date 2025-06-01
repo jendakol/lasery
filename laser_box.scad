@@ -3,7 +3,14 @@ DEBUG = false;
 laser_dia = 12;
 main_length = 35.8;
 
-heatsink_size = [31.7, 20, 30.2];
+heatsink_size_v1 = [31.7, 20, 30.2];
+laser_z_in_heatsink_v1 = 10.7;
+
+heatsink_size_v2 = [50.5, 20.2, 31.5];
+laser_z_in_heatsink_v2 = 11;
+
+
+heatsink_size = heatsink_size_v2;
 fan_size = [7.8, 30, 30];
 
 fan_hole_pos = [3, 3];
@@ -11,11 +18,15 @@ fan_hole_dia = 4.5;
 
 laser_length = 42;
 laser_board_length = 10.4;
-laser_z_in_heatsink = 10.7;
-length_space = 12;
+laser_z_in_heatsink = laser_z_in_heatsink_v2;
+laser_pos_offset = abs(laser_length - heatsink_size.x - 10);
+echo("laser_pos_offset", laser_pos_offset);
+length_space = 5 + laser_pos_offset;
 ray_hole_laser_dia = 5;
 screw_hole_laser_dia = 3.5;
 cable_hole_width = 5.5;
+
+screwholder_size = [20, 8, 3];
 
 partition_fatness = .8;
 fatness = 1.2;
@@ -25,16 +36,21 @@ round_prec = 20;
 
 // ---
 
+inner_height = max(fan_size.z, heatsink_size.z);
+//inner_height = fan_size.z;
+
+echo("Inner height ", inner_height);
+
 base_inner = [laser_length + laser_board_length + length_space + fan_size.x + inset, fan_size.y + inset, fan_size.z + inset];
 echo("Base inner box size ", base_inner.x, " x ", base_inner.y);
 
-base_outer = [base_inner.x + cover_side_fat * 2, base_inner.y + cover_side_fat * 2, fan_size.z / 2];
+base_outer = [base_inner.x + cover_side_fat * 2, base_inner.y + cover_side_fat * 2, inner_height / 2];
 echo("Base outer box size ", base_outer.x, " x ", base_outer.y);
 
-inner_box = [base_outer.x + inset / 2, base_outer.y + inset / 2, fan_size.z];
+inner_box = [base_outer.x + inset / 2, base_outer.y + inset / 2, inner_height];
 echo("Inner box size ", inner_box.x, " x ", inner_box.y);
 
-box = [inner_box.x + fatness * 2, inner_box.y + fatness * 2, fan_size.z + fatness];
+box = [inner_box.x + fatness * 2, inner_box.y + fatness * 2, inner_height + fatness];
 echo("Box size ", box.x, " x ", box.y, " x ", box.z);
 
 
@@ -50,7 +66,7 @@ module Laser(x, y, z) {
     translate([x, y, z]) union() {
         color("gray") rotate([0, 90]) cylinder(h = laser_length, d = laser_dia, $fn = 40);
         color("gray") translate([laser_length, - laser_dia / 2, - 1]) cube([laser_board_length, laser_dia, 1]);
-        color("green") translate([- 20, 0, 0]) rotate([0, 90]) cylinder(h = laser_length, d = ray_hole_laser_dia, $fn = 40);
+        color("green") translate([- 30, 0, 0]) rotate([0, 90]) cylinder(h = laser_length, d = ray_hole_laser_dia, $fn = 40);
     }
 }
 
@@ -69,19 +85,17 @@ module Fan(x, y, z) {
 }
 
 module ScrewHolder(x, y) {
-    size = [15, 8, 3];
-
-    translate([x, y - size.y / 2]) difference() {
-        cube([size.x, size.y, size.z]);
-        translate([size.x / 2, size.y / 2, - .01]) rotate([0, 0, 90]) {
-            cylinder(h = size.z + 2, d = screw_hole_laser_dia, $fn = round_prec);
-            translate([0, 0, size.z - 1]) color("yellow") cylinder(h = 2, d = screw_hole_laser_dia + 2, $fn = round_prec);
+    color("orange") translate([x, y - screwholder_size.y / 2]) difference() {
+        cube([screwholder_size.x, screwholder_size.y, screwholder_size.z]);
+        translate([screwholder_size.x / 2, screwholder_size.y / 2, - .01]) rotate([0, 0, 90]) {
+            cylinder(h = screwholder_size.z + 2, d = screw_hole_laser_dia, $fn = round_prec);
+            translate([0, 0, screwholder_size.z - 1]) color("yellow") cylinder(h = 2, d = screw_hole_laser_dia + 2, $fn = round_prec);
         }
     }
 }
 
 // cover
-//translate([0, - 15.2, fatness + box.z]) rotate([180, 0, 0])
+//translate([0, - 15.4, fatness + box.z + .05]) rotate([180, 0, 0])
 union() {
     difference() {
         cube(box);
@@ -89,8 +103,8 @@ union() {
         translate([fatness, fatness, fatness + .01])
             cube(inner_box);
 
-        // for debugging:
-        // translate([fatness, fatness, - .01]) cube(inner_box); // ceiling
+        // for debugging (ceiling)
+        // translate([fatness, fatness, - .01]) cube(inner_box);
 
         // ray hole
         translate([- 0.2, box.y / 2, box.z - laser_dia / 2 - laser_z_in_heatsink]) rotate([0, 90]) {
@@ -98,8 +112,8 @@ union() {
         }
 
         // cable hole
-        translate([box.x - fatness - .01, box.y - cable_hole_width - fatness - cover_side_fat - inset / 2, box.z - 4]) {
-            cube([4, cable_hole_width, 4]);
+        translate([box.x - fatness - .01, box.y - cable_hole_width - fatness - cover_side_fat - inset / 2, box.z - 6]) {
+            cube([4, cable_hole_width, 100]);
         }
 
         // side air flow holes
@@ -111,13 +125,28 @@ union() {
         }
 
         // back air flow holes
-        translate([box.x - fatness - .01, fatness, 5]) {
+        translate([box.x - fatness - .01, fatness, 3]) {
             width = 7;
             translate([0, 1, 0]) cube([fatness + .2, width, 20]);
             translate([0, inner_box.y - width - 1, 0]) cube([fatness + .2, width, 20]);
         }
+
+        // screw holders space
+        translate([-.01, (box.y - screwholder_size.y) / 2 - .2, box.z - screwholder_size.z + fatness - .2]) {
+            cube([fatness + .02, screwholder_size.y + .4, screwholder_size.z - fatness + .4]);
+        }
+        translate([box.x - fatness - .01, (box.y - screwholder_size.y) / 2 - .2, box.z - screwholder_size.z + fatness - .2]) {
+            cube([fatness + .02, screwholder_size.y + .4, screwholder_size.z - fatness + .4]);
+        }
+
+        // for debugging (back side)
+        // translate([box.x - fatness - .01, fatness, fatness]) cube([100, inner_box.y, 100]);
     }
 
+    // fan ceiling
+    translate([box.x - fan_size.x - fatness, 0, fatness]) {
+        color("orange") cube([fan_size.x, box.y, inner_height - fan_size.z - .4]);
+    }
 }
 
 
@@ -161,7 +190,7 @@ translate([0, - 50]) union() {
 
         if (DEBUG) translate([fatness + inset / 2 + cover_side_fat, fatness + inset / 2 + cover_side_fat, fatness + inset / 2]) {
             Heatsink(0, (base_inner.y - heatsink_size.y) / 2, 0);
-            Laser(0, base_inner.y / 2, laser_z_in_heatsink + laser_dia / 2);
+            Laser(laser_pos_offset, base_inner.y / 2, laser_z_in_heatsink + laser_dia / 2);
             Fan(base_inner.x - fan_size.x, inset / 2, 0);
         }
 
@@ -200,7 +229,7 @@ translate([0, - 50]) union() {
         }
 
         // screw holders
-        ScrewHolder(- 15 + .05, box.y / 2);
-        ScrewHolder(box.x - .05, box.y / 2);
+        ScrewHolder(- screwholder_size.x + fatness + inset / 2, box.y / 2);
+        ScrewHolder(box.x - fatness, box.y / 2);
     }
 }
