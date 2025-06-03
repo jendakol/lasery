@@ -10,6 +10,7 @@
 #include <TFT_eSPI.h>
 #include <SPI.h>
 #include <set>
+#include <map>
 #include <TelnetPrint.h>
 
 #include <Tasker.h>
@@ -156,8 +157,8 @@ void displayState() {
     tft.setTextSize(1);
     tft.setTextFont(2);
 
-    tft.drawString(sirenSettingText, 2, 0, 2);
-    tft.drawRightString(lasersSettingText, TFT_HEIGHT - 2, 0, 2);
+    tft.drawString(sirenSettingText, 2, 0, 1);
+    tft.drawRightString(lasersSettingText, TFT_HEIGHT - 2, 0, 1);
 
     if (!alertingIds.empty()) {
         tft.setTextColor(textColor);
