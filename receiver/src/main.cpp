@@ -305,7 +305,7 @@ void setup() {
     Serial.println("Starting telnet server...");
     TelnetPrint.begin();
 
-    DefaultTasker.loopEvery("DisplayState", 50, displayState);
+    DefaultTasker.loopEvery("DisplayState", 100, displayState);
     DefaultTasker.loopEvery("SwitchRelays", 50, switchRelays);
 
     DefaultTasker.once("NetworkSetup", [] {
