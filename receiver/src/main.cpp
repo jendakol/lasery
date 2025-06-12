@@ -111,16 +111,20 @@ void printState(const u64 now) {
                   shouldAlert() ? "YES" : "NO");
 }
 
+void startingScreen() {
+    tft.fillScreen(TFT_GREY);
+    tft.fillRoundRect(10, 10, TFT_HEIGHT - 20, TFT_WIDTH - 20, 10, TFT_GREEN);
+    tft.setTextSize(1);
+    tft.setTextColor(TFT_BLACK);
+    tft.drawCentreString("Starting...", TFT_HEIGHT / 2, TFT_WIDTH / 2 - 10, 4);
+}
+
 void displayState() {
     if (!redrawDisplay) return;
     redrawDisplay = false;
 
     if (!started) {
-        tft.fillScreen(TFT_GREY);
-        tft.fillRoundRect(10, 10, TFT_HEIGHT - 20, TFT_WIDTH - 20, 10, TFT_GREEN);
-        tft.setTextSize(1);
-        tft.setTextColor(TFT_BLACK);
-        tft.drawCentreString("Starting...", TFT_HEIGHT / 2, TFT_WIDTH / 2 - 10, 4);
+        startingScreen();
         return;
     }
 
