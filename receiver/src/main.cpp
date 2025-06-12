@@ -218,8 +218,10 @@ void onTextMessage(AsyncWebSocketClient *client, u8 *data, const size_t len) {
 
         if (status == "alert") {
             alertingIds.insert(client->id());
+            redraw();
         } else if (status == "alert-ok") {
             alertingIds.erase(client->id());
+            redraw();
         }
 
         if (!alertingIds.empty() != oldAlerting) {
@@ -253,7 +255,7 @@ void onSensorWsEvent(__unused AsyncWebSocket *server, AsyncWebSocketClient *clie
         const String &string = String(pingNo);
         client->ping((u8 *) string.c_str(), string.length());
     } else if (type == WS_EVT_DISCONNECT) {
-        Serial.printf("Sensor client %d disconnected\n", client->id());
+        Serial.printf("Sensor client %d disconnected\n", clientIds[client->id()]);
         TelnetPrint.printf("Sensor ID %d disconnected\r\n", clientIds[client->id()]);
         clientIds.erase(client->id());
         alertingIds.erase(client->id());
