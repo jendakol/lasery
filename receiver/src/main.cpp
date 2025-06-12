@@ -130,34 +130,51 @@ void displayState() {
 
     String alertingIdsText = "[";
     auto it = alertingIds.begin();
-    while (it != alertingIds.end()) {
+
+    if(it != alertingIds.end()) {
         alertingIdsText += clientIds[*it];
+        it++;
+    }
+    while (it != alertingIds.end()) {
         alertingIdsText += ",";
+        alertingIdsText += clientIds[*it];
         it++;
     }
     alertingIdsText += "]";
 
     const u16 textColor = switchState >= SwLasersOn ? TFT_BLACK : TFT_WHITE;
 
+    const String sirenSettingText = switchState == SwSirenEnabled ? "Siren: ENABLED" : "Siren: DISABLED";
+    const String lasersSettingText = switchState >= SwLasersOn ? "Lasers: ON" : "Lasers: OFF";
+
     if (sirenOn) {
-        tft.fillScreen(TFT_RED);
+        tft.fillScreen(TFT_BLUE);
+        tft.setTextSize(1);
+        tft.setTextFont(2);
+        tft.setTextColor(textColor, TFT_BLUE);
+        tft.drawString(sirenSettingText, 2, 0, 1);
+        tft.drawRightString(lasersSettingText, TFT_HEIGHT - 2, 0, 1);
+        
         if (!alertingIds.empty()) {
-            tft.setTextColor(textColor);
+            tft.setTextColor(textColor, TFT_BLUE);
             tft.setTextSize(2);
-            tft.drawCentreString(alertingIdsText, TFT_HEIGHT / 2, TFT_WIDTH / 2, 2);
+            tft.drawCentreString(alertingIdsText, TFT_HEIGHT / 2, (TFT_WIDTH - tft.fontHeight()) / 2, 2);
             tft.setTextSize(1);
         }
+
+        
+        tft.setCursor(2, TFT_WIDTH - 16, 2);
+        const u8 clientsCount = wsSensors.getClients().length();
+        tft.printf("Clients: %d", clientsCount);
+
         return;
     }
 
     const bool possibleAlert = shouldAlert();
     const u16 bgColor = switchState >= SwLasersOn ? (possibleAlert ? TFT_ORANGE : TFT_GREEN) : TFT_GREY;
 
-    const String sirenSettingText = switchState == SwSirenEnabled ? "Siren: ENABLED" : "Siren: DISABLED";
-    const String lasersSettingText = switchState >= SwLasersOn ? "Lasers: ON" : "Lasers: OFF";
-
     tft.fillScreen(bgColor);
-    tft.setTextColor(textColor);
+    tft.setTextColor(textColor, bgColor);
     tft.setTextSize(1);
     tft.setTextFont(2);
 
@@ -165,9 +182,9 @@ void displayState() {
     tft.drawRightString(lasersSettingText, TFT_HEIGHT - 2, 0, 1);
 
     if (!alertingIds.empty()) {
-        tft.setTextColor(textColor);
+        tft.setTextColor(textColor, bgColor);
         tft.setTextSize(2);
-        tft.drawCentreString(alertingIdsText, TFT_HEIGHT / 2, TFT_WIDTH / 2, 2);
+        tft.drawCentreString(alertingIdsText, (TFT_HEIGHT / 2), (TFT_WIDTH - tft.fontHeight()) / 2, 2);
         tft.setTextSize(1);
     }
 
