@@ -76,7 +76,7 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t len) {
     switch (type) {
         case WStype_DISCONNECTED: {
             appState = STATE_STARTED;
-            for (auto sensor : sensors) {
+            for (auto sensor: sensors) {
                 sensor->ledStatus = LedStatus::RedStill;
             }
             displayState(now);
@@ -101,7 +101,7 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t len) {
 
             ws.begin(gatewayIp, 80, SENSOR_WS_PATH);
 
-            for (auto sensor : sensors) {
+            for (auto sensor: sensors) {
                 sensor->ledStatus = LedStatus::RedBlink;
             }
 
@@ -124,14 +124,14 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t len) {
 
             Serial.println(F("Reconnection successful!"));
         }
-            break;
+        break;
         case WStype_CONNECTED: {
             Serial.println("Connected!");
             lastReportSent = lastPing = now;
             unconfirmedMessage = false;
             appState = STATE_CONNECTED;
         }
-            break;
+        break;
         case WStype_TEXT: {
             StaticJsonDocument<100> json;
             deserializeJson(json, payload, len);
@@ -153,7 +153,7 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t len) {
                 Serial.println();
             }
         }
-            break;
+        break;
         case WStype_PING: {
             // TODO Jenda - revert
             Serial.print(F("Received ping: "));
@@ -165,7 +165,7 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t len) {
 
             lastPing = now;
         }
-            break;
+        break;
         default: {
             Serial.print(F("Unsupported WS event: "));
             Serial.println(type);
@@ -210,7 +210,7 @@ void setup() {
         Serial.println("ID written to EEPROM");
     }
 
-    for (auto sensor : sensors) {
+    for (auto sensor: sensors) {
         sensor->ledStatus = LedStatus::RedStill;
     }
 
@@ -226,11 +226,12 @@ void setup() {
     Serial.print(F("\nConnecting to wifi "));
     Serial.println(WIFI_SSID);
 
-    for (auto sensor : sensors) {
+    for (auto sensor: sensors) {
         sensor->ledStatus = LedStatus::RedBlink;
     }
 
-    while (WiFi.status() != WL_CONNECTED) { // Wait for the Wi-Fi to connect
+    while (WiFi.status() != WL_CONNECTED) {
+        // Wait for the Wi-Fi to connect
         const u64 start = millis();
         u64 now = start;
         while ((now = millis()) - start < 500) {
@@ -238,7 +239,6 @@ void setup() {
             delay(5);
         }
         Serial.print('.');
-
     }
     delay(20);
 
@@ -285,7 +285,7 @@ void loop() {
         const bool alerting = measureAndUpdateStates() == LOW;
 
         if (isDebugReporting) {
-            for (auto &sensor : sensors) {
+            for (auto &sensor: sensors) {
                 Wire.beginTransmission(sensor->getAddress());
                 if (Wire.endTransmission() != 0) {
                     // TODO Jenda - revert
@@ -357,7 +357,7 @@ void printState() {
 }
 
 void displayState(u64 now) {
-    for (auto & sensor : sensors) {
+    for (auto &sensor: sensors) {
         sensor->loop(now);
     }
 }
@@ -373,7 +373,7 @@ u8 measureAndUpdateStates() {
 
     for (auto sensor: sensors) {
         const u8 measured = sensor->measure();
-//        if (measured == LOW) Serial.printf("Sensor 0x%x alerting!\n", sensor->getAddress());
+        //        if (measured == LOW) Serial.printf("Sensor 0x%x alerting!\n", sensor->getAddress());
         result &= measured;
         sensor->ledStatus = (measured == HIGH ? LedStatus::GreenStill : LedStatus::GreenBlink);
     }
