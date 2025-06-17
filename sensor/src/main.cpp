@@ -189,6 +189,7 @@ void reportAlerting(bool alerting) {
 void setup() {
     Serial.begin(115200);
     EEPROM.begin(512);
+    Wire.begin(D2, D1);
 
     //EEPROM.write(0x00, 14);
     //EEPROM.commit();
