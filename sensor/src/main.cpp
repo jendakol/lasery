@@ -23,7 +23,8 @@
 #define REPORT_INTERVAL_MAX 5000
 
 #define CONFIRMATION_TIMEOUT 100
-#define RECONNECTION_TIMEOUT 50
+// TODO Jenda - revert
+#define RECONNECTION_TIMEOUT 500
 #define PING_TIMEOUT (PING_EVERY + 500)
 
 #define MAX_RECONNECTIONS 5
@@ -55,6 +56,20 @@ void displayState(u64 now);
 
 u8 measureAndUpdateStates();
 
+void wsLoop() {
+    const u64 start = millis();
+
+    ws.loop();
+
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "LoopDoesntUseConditionVariableInspection"
+    while ((millis() - start) < 1) {
+        delay(0);
+        ws.loop();
+    }
+#pragma clang diagnostic pop
+}
+
 void webSocketEvent(WStype_t type, uint8_t *payload, size_t len) {
     u64 now = millis();
 
@@ -67,17 +82,18 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t len) {
             displayState(now);
             Serial.println(F("Websocket disconnected!"));
 
-            if (durationBetween(now, lastReconnection) < MIN_RECONNECTIONS_INTERVAL) {
-                Serial.println(F("Too frequent reconnections, restarting..."));
-                ESP.restart();
-                return;
-            }
-
-            if (totalReconnections++ > MAX_RECONNECTIONS) {
-                Serial.println(F("Too many reconnections, restarting..."));
-                ESP.restart();
-                return;
-            }
+            // TODO Jenda - revert
+            // if (durationBetween(now, lastReconnection) < MIN_RECONNECTIONS_INTERVAL) {
+            //     Serial.println(F("Too frequent reconnections, restarting..."));
+            //     ESP.restart();
+            //     return;
+            // }
+            //
+            // if (totalReconnections > MAX_RECONNECTIONS) {
+            //     Serial.println(F("Too many reconnections, restarting..."));
+            //     ESP.restart();
+            //     return;
+            // }
 
             Serial.println(F("Reconnecting..."));
 
@@ -105,11 +121,14 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t len) {
 
             totalReconnections++;
             lastReconnection = millis();
+
+            Serial.println(F("Reconnection successful!"));
         }
             break;
         case WStype_CONNECTED: {
             Serial.println("Connected!");
             lastReportSent = lastPing = now;
+            unconfirmedMessage = false;
             appState = STATE_CONNECTED;
         }
             break;
@@ -136,6 +155,14 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t len) {
         }
             break;
         case WStype_PING: {
+            // TODO Jenda - revert
+            Serial.print(F("Received ping: "));
+
+            for (uint i = 0; i < len; i++) {
+                Serial.print((char) payload[i]);
+            }
+            Serial.println();
+
             lastPing = now;
         }
             break;
@@ -144,20 +171,6 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t len) {
             Serial.println(type);
         }
     }
-}
-
-void wsLoop() {
-    const u64 start = millis();
-
-    ws.loop();
-
-#pragma clang diagnostic push
-#pragma ide diagnostic ignored "LoopDoesntUseConditionVariableInspection"
-    while ((millis() - start) < 1) {
-        delay(0);
-        ws.loop();
-    }
-#pragma clang diagnostic pop
 }
 
 void reportAlerting(bool alerting) {
@@ -191,9 +204,11 @@ void setup() {
     EEPROM.begin(512);
     Wire.begin(D2, D1);
 
-    //EEPROM.write(0x00, 14);
-    //EEPROM.commit();
-    // Serial.println("ID written to EEPROM");
+    if (EEPROM.read(0x00) == 0xff) {
+        EEPROM.write(0x00, 7);
+        EEPROM.commit();
+        Serial.println("ID written to EEPROM");
+    }
 
     for (auto sensor : sensors) {
         sensor->ledStatus = LedStatus::RedStill;
@@ -273,7 +288,8 @@ void loop() {
             for (auto &sensor : sensors) {
                 Wire.beginTransmission(sensor->getAddress());
                 if (Wire.endTransmission() != 0) {
-                    Serial.printf("Sensor on address 0x%x not found\n", sensor->getAddress());
+                    // TODO Jenda - revert
+                    // Serial.printf("Sensor on address 0x%x not found\n", sensor->getAddress());
                 }
             }
 
@@ -281,8 +297,7 @@ void loop() {
         }
 
         wsLoop();
-
-        now = millis();
+        now = millis(); // need to refresh the time after WS loop
 
         // following two values are basically a snapshot; this is to prevent race-condition with WS events -.|.-
         const u32 sinceLastReport = durationBetween(now, lastReportSent);
@@ -307,6 +322,7 @@ void loop() {
         }
 
         wsLoop();
+        now = millis(); // need to refresh the time after WS loop
 
         const u32 sinceLastPing = durationBetween(now, lastPing);
         if (sinceLastPing > PING_TIMEOUT) {
@@ -348,7 +364,14 @@ void displayState(u64 now) {
 
 u8 measureAndUpdateStates() {
     u8 result = HIGH;
-    for (auto sensor : sensors) {
+
+    // TODO Jenda - revert
+    if (digitalRead(D3) == LOW) {
+        // Serial.println(F("Button pressed, alerting!"));
+        return LOW;
+    }
+
+    for (auto sensor: sensors) {
         const u8 measured = sensor->measure();
 //        if (measured == LOW) Serial.printf("Sensor 0x%x alerting!\n", sensor->getAddress());
         result &= measured;
